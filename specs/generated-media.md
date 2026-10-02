@@ -16,6 +16,6 @@ Goal: G-02. Claude generates voice and animations and places them on the timelin
 
 ## What Chameleon must support
 
-- Audio track: add/move/trim audio files, with volume, and ducking of the original audio under voice-over.
+- Audio track: add/move/trim audio files, with volume.
 - Overlay track: video files with alpha (and images) placed by time, position, size and layer, composited in preview and export.
 - All of the above editable through the CLI (claude-control.md).
