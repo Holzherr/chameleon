@@ -1,4 +1,4 @@
-Status: draft
+Status: agreed
 
 # Claude control
 
@@ -7,11 +7,20 @@ Goal: G-01. Claude Code opens a project, reads it, edits precise portions, previ
 ## Facts it builds on
 
 - The `.openscreen` project file is JSON holding every edit (trim, speed, zoom, annotation regions in ms). Editing that file is editing the video.
-- Captions already produce timestamped Whisper segments, so a transcript with times is available.
+- Captions already produce timestamped Whisper segments (whisper-tiny, chunk-level).
 - Export only runs inside the Electron renderer today.
 
-## Open questions for Nick
+## Decisions (see DECISIONS.md)
 
-- Surface: MCP server, CLI, or both?
-- Should the running app live-reload when Claude changes the project file, or does Claude work on closed projects only?
-- Whisper tiny is the current model; is its timing accurate enough for word-level cuts, or upgrade the model?
+- Surface: CLI now, MCP later.
+- The open app live-reloads external changes to the project file, one undo step per change; banner instead of overwrite when the editor has unsaved edits.
+- Word-level transcript (Whisper base timestamped); cuts snap to silence.
+
+## What the CLI must let Claude do
+
+- Open a recording or project, and read its full state as JSON.
+- Get a word-level transcript with timestamps.
+- Edit precise portions: trim/cut, speed, zoom, annotations/captions, by time range.
+- Add audio files (voice) and overlay media (animations) at a time and position. See generated-media.md.
+- Grab a still frame at any time so Claude can check its work.
+- Export MP4/GIF without a person clicking through the app.

@@ -1,4 +1,4 @@
-Status: draft
+Status: agreed
 
 # Generated voice and animations
 
@@ -9,7 +9,13 @@ Goal: G-02. Claude generates voice and animations and places them on the timelin
 - OpenScreen has no extra audio track and no video overlay track. Annotations support static images only (data URL in `imageContent`).
 - Both tracks have to be added to the project model, playback, and the exporter (`src/lib/exporter/`) before generated media can land.
 
-## Open questions for Nick
+## Decisions (see DECISIONS.md)
 
-- Voice provider (paid per use, e.g. ElevenLabs): which one, and is spend pre-approved?
-- Animations: rendered to video with alpha and placed on an overlay track, drawn live in the render pipeline, or both?
+- Voice is bring-your-own: no bundled provider. The user's provider produces an audio file; Claude places it.
+- Claude generates animations under the user's own tool licences. Chameleon only needs to give Claude full control of placement.
+
+## What Chameleon must support
+
+- Audio track: add/move/trim audio files, with volume, and ducking of the original audio under voice-over.
+- Overlay track: video files with alpha (and images) placed by time, position, size and layer, composited in preview and export.
+- All of the above editable through the CLI (claude-control.md).
