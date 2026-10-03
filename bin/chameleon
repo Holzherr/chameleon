@@ -1,0 +1,12 @@
+#!/usr/bin/env node
+// Shim for the bundled CLI. Build it with `npm run build:cli`.
+import { existsSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
+
+const bundle = join(dirname(fileURLToPath(import.meta.url)), "..", "dist-cli", "chameleon.mjs");
+if (!existsSync(bundle)) {
+	process.stderr.write("chameleon: CLI not built; run `npm run build:cli`\n");
+	process.exit(1);
+}
+await import(pathToFileURL(bundle).href);

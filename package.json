@@ -38,6 +38,7 @@
 		"capture:openscreen-preview": "node scripts/capture-openscreen-preview.mjs",
 		"inspect:cursor-click-bounce": "node scripts/inspect-native-cursor-click-bounce.mjs",
 		"build-vite": "tsc && vite build",
+		"build:cli": "esbuild cli/main.ts --bundle --platform=node --format=esm --target=node22 --outfile=dist-cli/chameleon.mjs --external:@xenova/transformers --external:onnxruntime-node --log-level=warning",
 		"test:browser": "vitest --config vitest.browser.config.ts --run",
 		"test:browser:install": "playwright install --with-deps chromium-headless-shell",
 		"test:e2e": "playwright test",
@@ -119,6 +120,9 @@
 		"vitest": "^4.1.4"
 	},
 	"main": "dist-electron/main.js",
+	"bin": {
+		"chameleon": "bin/chameleon"
+	},
 	"lint-staged": {
 		"*.{ts,tsx,js,jsx,mts,cts,json}": "biome check --no-errors-on-unmatched"
 	}
