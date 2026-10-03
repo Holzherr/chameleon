@@ -136,6 +136,51 @@ function isMp4Source(videoUrl: string, blob: Blob) {
 	}
 }
 
+/** FrameRenderer config for an export, shared with single-frame rendering. */
+export function buildFrameRenderConfig(
+	config: VideoExporterConfig,
+	videoSize: { width: number; height: number },
+	webcamSize: { width: number; height: number } | null,
+	platform: string,
+): ConstructorParameters<typeof FrameRenderer>[0] {
+	return {
+		width: config.width,
+		height: config.height,
+		wallpaper: config.wallpaper,
+		zoomRegions: config.zoomRegions,
+		showShadow: config.showShadow,
+		shadowIntensity: config.shadowIntensity,
+		showBlur: config.showBlur,
+		motionBlurAmount: config.motionBlurAmount,
+		borderRadius: config.borderRadius,
+		padding: config.padding,
+		cropRegion: config.cropRegion,
+		cursorRecordingData: config.cursorRecordingData,
+		cursorScale: config.cursorScale,
+		cursorSmoothing: config.cursorSmoothing,
+		cursorMotionBlur: config.cursorMotionBlur,
+		cursorClickBounce: config.cursorClickBounce,
+		cursorClipToBounds: config.cursorClipToBounds,
+		cursorTheme: config.cursorTheme,
+		videoWidth: videoSize.width,
+		videoHeight: videoSize.height,
+		webcamSize,
+		webcamLayoutPreset: config.webcamLayoutPreset,
+		webcamMaskShape: config.webcamMaskShape,
+		webcamMirrored: config.webcamMirrored,
+		webcamReactiveZoom: config.webcamReactiveZoom,
+		webcamSizePreset: config.webcamSizePreset,
+		webcamPosition: config.webcamPosition,
+		annotationRegions: config.annotationRegions,
+		speedRegions: config.speedRegions,
+		previewWidth: config.previewWidth,
+		previewHeight: config.previewHeight,
+		cursorTelemetry: config.cursorTelemetry,
+		cursorClickTimestamps: config.cursorClickTimestamps,
+		platform,
+	};
+}
+
 export class VideoExporter {
 	private config: VideoExporterConfig;
 	private streamingDecoder: StreamingVideoDecoder | null = null;
@@ -228,42 +273,14 @@ export class VideoExporter {
 				webcamInfo = await webcamDecoder.loadMetadata(this.config.webcamVideoUrl);
 			}
 
-			const renderer = new FrameRenderer({
-				width: this.config.width,
-				height: this.config.height,
-				wallpaper: this.config.wallpaper,
-				zoomRegions: this.config.zoomRegions,
-				showShadow: this.config.showShadow,
-				shadowIntensity: this.config.shadowIntensity,
-				showBlur: this.config.showBlur,
-				motionBlurAmount: this.config.motionBlurAmount,
-				borderRadius: this.config.borderRadius,
-				padding: this.config.padding,
-				cropRegion: this.config.cropRegion,
-				cursorRecordingData: this.config.cursorRecordingData,
-				cursorScale: this.config.cursorScale,
-				cursorSmoothing: this.config.cursorSmoothing,
-				cursorMotionBlur: this.config.cursorMotionBlur,
-				cursorClickBounce: this.config.cursorClickBounce,
-				cursorClipToBounds: this.config.cursorClipToBounds,
-				cursorTheme: this.config.cursorTheme,
-				videoWidth: videoInfo.width,
-				videoHeight: videoInfo.height,
-				webcamSize: webcamInfo ? { width: webcamInfo.width, height: webcamInfo.height } : null,
-				webcamLayoutPreset: this.config.webcamLayoutPreset,
-				webcamMaskShape: this.config.webcamMaskShape,
-				webcamMirrored: this.config.webcamMirrored,
-				webcamReactiveZoom: this.config.webcamReactiveZoom,
-				webcamSizePreset: this.config.webcamSizePreset,
-				webcamPosition: this.config.webcamPosition,
-				annotationRegions: this.config.annotationRegions,
-				speedRegions: this.config.speedRegions,
-				previewWidth: this.config.previewWidth,
-				previewHeight: this.config.previewHeight,
-				cursorTelemetry: this.config.cursorTelemetry,
-				cursorClickTimestamps: this.config.cursorClickTimestamps,
-				platform,
-			});
+			const renderer = new FrameRenderer(
+				buildFrameRenderConfig(
+					this.config,
+					{ width: videoInfo.width, height: videoInfo.height },
+					webcamInfo ? { width: webcamInfo.width, height: webcamInfo.height } : null,
+					platform,
+				),
+			);
 			this.renderer = renderer;
 			await renderer.initialize();
 

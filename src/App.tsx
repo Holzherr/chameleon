@@ -9,6 +9,7 @@ import { ShortcutsProvider } from "./contexts/ShortcutsContext";
 import { loadAllCustomFonts } from "./lib/customFonts";
 
 const VideoEditor = lazy(() => import("./components/video-editor/VideoEditor"));
+const HeadlessRender = lazy(() => import("./components/chameleon/HeadlessRender"));
 const ShortcutsConfigDialog = lazy(() =>
 	import("./components/video-editor/ShortcutsConfigDialog").then((module) => ({
 		default: module.ShortcutsConfigDialog,
@@ -63,6 +64,12 @@ export default function App() {
 				return <SourceSelector />;
 			case "countdown-overlay":
 				return <CountdownOverlay />;
+			case "render":
+				return (
+					<Suspense fallback={null}>
+						<HeadlessRender />
+					</Suspense>
+				);
 			case "editor":
 				return (
 					<ShortcutsProvider>

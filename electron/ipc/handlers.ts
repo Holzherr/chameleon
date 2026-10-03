@@ -35,6 +35,7 @@ import type {
 	ProjectFileResult,
 	ProjectPathResult,
 } from "../../src/native/contracts";
+import { ProjectFileWatcher } from "../chameleon/projectWatcher";
 import { mainT } from "../i18n";
 import { RECORDINGS_DIR } from "../main";
 import { createCursorRecordingSession } from "../native-bridge/cursor/recording/factory";
@@ -356,6 +357,17 @@ let selectedDesktopSource: DesktopCapturerSource | null = null;
 let lastEnumeratedSources = new Map<string, DesktopCapturerSource>();
 let currentProjectPath: string | null = null;
 let currentRecordingSession: RecordingSession | null = null;
+
+// Live reload: the open project file is watched so edits made outside the app (e.g. by
+// the chameleon CLI) reach the editor. See specs/DECISIONS.md.
+let onExternalProjectChange: ((filePath: string) => void) | null = null;
+const projectWatcher = new ProjectFileWatcher((filePath) => onExternalProjectChange?.(filePath));
+
+/** `content` is the file content the app just read or is about to write. */
+function setCurrentProjectPath(filePath: string | null, content?: string) {
+	currentProjectPath = filePath;
+	projectWatcher.setFile(filePath, content);
+}
 
 // Cached source from the user's pick. Used by setDisplayMediaRequestHandler in main.ts for cursor-free capture.
 export function getSelectedDesktopSource(): DesktopCapturerSource | null {
@@ -2013,7 +2025,7 @@ export function registerIpcHandlers(
 				? { screenVideoPath, webcamVideoPath, createdAt: recordingId, cursorCaptureMode }
 				: { screenVideoPath, createdAt: recordingId, cursorCaptureMode };
 			setCurrentRecordingSessionState(session);
-			currentProjectPath = null;
+			setCurrentProjectPath(null);
 
 			const sessionManifestPath = path.join(
 				RECORDINGS_DIR,
@@ -2099,7 +2111,7 @@ export function registerIpcHandlers(
 				cursorCaptureMode,
 			};
 			setCurrentRecordingSessionState(session);
-			currentProjectPath = null;
+			setCurrentProjectPath(null);
 
 			const sessionManifestPath = path.join(
 				RECORDINGS_DIR,
@@ -2171,7 +2183,7 @@ export function registerIpcHandlers(
 					...(cursorCaptureMode ? { cursorCaptureMode } : {}),
 				};
 				setCurrentRecordingSessionState(session);
-				currentProjectPath = null;
+				setCurrentProjectPath(null);
 
 				const sessionManifestPath = path.join(
 					RECORDINGS_DIR,
@@ -2262,7 +2274,7 @@ export function registerIpcHandlers(
 				}
 			: { screenVideoPath, createdAt, ...(cursorCaptureMode ? { cursorCaptureMode } : {}) };
 		setCurrentRecordingSessionState(session);
-		currentProjectPath = null;
+		setCurrentProjectPath(null);
 
 		await writePendingCursorTelemetry(screenVideoPath);
 
@@ -2478,7 +2490,7 @@ export function registerIpcHandlers(
 				};
 			}
 
-			currentProjectPath = null;
+			setCurrentProjectPath(null);
 			return {
 				success: true,
 				path: normalizedPath,
@@ -2572,13 +2584,11 @@ export function registerIpcHandlers(
 				? existingProjectPath
 				: null;
 
+			const serialized = JSON.stringify(projectData, null, 2);
 			if (trustedExistingProjectPath) {
-				await fs.writeFile(
-					trustedExistingProjectPath,
-					JSON.stringify(projectData, null, 2),
-					"utf-8",
-				);
-				currentProjectPath = trustedExistingProjectPath;
+				// Record the content before writing so the watcher doesn't report our own save.
+				setCurrentProjectPath(trustedExistingProjectPath, serialized);
+				await fs.writeFile(trustedExistingProjectPath, serialized, "utf-8");
 				return {
 					success: true,
 					path: trustedExistingProjectPath,
@@ -2616,8 +2626,8 @@ export function registerIpcHandlers(
 				};
 			}
 
-			await fs.writeFile(result.filePath, JSON.stringify(projectData, null, 2), "utf-8");
-			currentProjectPath = result.filePath;
+			setCurrentProjectPath(result.filePath, serialized);
+			await fs.writeFile(result.filePath, serialized, "utf-8");
 
 			return {
 				success: true,
@@ -2683,7 +2693,7 @@ export function registerIpcHandlers(
 			const filePath = result.filePaths[0];
 			const content = await fs.readFile(filePath, "utf-8");
 			const project = JSON.parse(content);
-			currentProjectPath = filePath;
+			setCurrentProjectPath(filePath, content);
 			setCurrentRecordingSessionState(await getApprovedProjectSession(project, filePath));
 
 			return {
@@ -2720,7 +2730,7 @@ export function registerIpcHandlers(
 			}
 			const content = await fs.readFile(filePath, "utf-8");
 			const project = JSON.parse(content);
-			currentProjectPath = filePath;
+			setCurrentProjectPath(filePath, content);
 
 			// Approve session paths but tolerate failures (e.g. video moved outside trusted
 			// dirs) so the project still loads and the renderer can show "video not found".
@@ -2757,6 +2767,7 @@ export function registerIpcHandlers(
 
 			const content = await fs.readFile(currentProjectPath, "utf-8");
 			const project = JSON.parse(content);
+			projectWatcher.noteContent(currentProjectPath, content);
 			setCurrentRecordingSessionState(await getApprovedProjectSession(project, currentProjectPath));
 			return {
 				success: true,
@@ -2781,7 +2792,7 @@ export function registerIpcHandlers(
 		const normalizedSession = normalizeRecordingSession(session);
 		setCurrentRecordingSessionState(normalizedSession);
 		currentVideoPath = normalizedSession?.screenVideoPath ?? null;
-		currentProjectPath = null;
+		setCurrentProjectPath(null);
 		return { success: true, session: currentRecordingSession };
 	});
 
@@ -2809,7 +2820,7 @@ export function registerIpcHandlers(
 				createdAt: Date.now(),
 			});
 		}
-		currentProjectPath = null;
+		setCurrentProjectPath(null);
 		return { success: true, path: currentVideoPath ?? normalizedPath };
 	}
 
@@ -2827,7 +2838,7 @@ export function registerIpcHandlers(
 
 	function clearCurrentVideoPath(): ProjectPathResult {
 		currentVideoPath = null;
-		currentProjectPath = null;
+		setCurrentProjectPath(null);
 		setCurrentRecordingSessionState(null);
 		return { success: true };
 	}
@@ -2913,4 +2924,12 @@ export function registerIpcHandlers(
 		loadCursorRecordingData: readCursorRecordingFile,
 		loadCursorTelemetry: readCursorTelemetryFile,
 	});
+
+	onExternalProjectChange = (filePath) => {
+		const window = getMainWindow();
+		if (!window || window.isDestroyed()) return;
+		window.webContents.send("chameleon-project-changed", { path: filePath });
+	};
+
+	return { loadProjectFileFromPath };
 }

@@ -24,7 +24,7 @@ import type {
 
 const GIF_WORKER_URL = new URL("gif.js/dist/gif.worker.js", import.meta.url).toString();
 
-interface GifExporterConfig {
+export interface GifExporterConfig {
 	videoUrl: string;
 	webcamVideoUrl?: string;
 	width: number;

@@ -320,3 +320,37 @@ export function createCountdownOverlayWindow(): BrowserWindow {
 
 	return win;
 }
+
+/**
+ * Hidden window for headless `--chameleon-render` runs. Never shown; not throttled so
+ * WebCodecs/Pixi keep running at full speed while invisible.
+ */
+export function createRenderWindow(): BrowserWindow {
+	const win = new BrowserWindow({
+		width: 1280,
+		height: 800,
+		show: false,
+		paintWhenInitiallyHidden: true,
+		skipTaskbar: true,
+		backgroundColor: "#09090b",
+		webPreferences: {
+			preload: path.join(__dirname, "preload.mjs"),
+			additionalArguments: [ASSET_BASE_URL_ARG],
+			nodeIntegration: false,
+			contextIsolation: true,
+			webSecurity: false,
+			backgroundThrottling: false,
+		},
+	});
+	win.webContents.setAudioMuted(true);
+
+	if (VITE_DEV_SERVER_URL) {
+		win.loadURL(VITE_DEV_SERVER_URL + "?windowType=render");
+	} else {
+		win.loadFile(path.join(RENDERER_DIST, "index.html"), {
+			query: { windowType: "render" },
+		});
+	}
+
+	return win;
+}

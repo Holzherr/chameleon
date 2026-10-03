@@ -635,36 +635,11 @@ export class StreamingVideoDecoder {
 		}
 	}
 
-	/**
-	 * Converts trim regions into the segments that should be kept.
-	 * Returns a single full-duration segment when no trim regions are present.
-	 */
 	private computeSegments(
 		totalDuration: number,
 		trimRegions?: TrimRegion[],
 	): Array<{ startSec: number; endSec: number }> {
-		if (!trimRegions || trimRegions.length === 0) {
-			return [{ startSec: 0, endSec: totalDuration }];
-		}
-
-		const sorted = [...trimRegions].sort((a, b) => a.startMs - b.startMs);
-		const segments: Array<{ startSec: number; endSec: number }> = [];
-		let cursor = 0;
-
-		for (const trim of sorted) {
-			const trimStart = trim.startMs / 1000;
-			const trimEnd = trim.endMs / 1000;
-			if (cursor < trimStart) {
-				segments.push({ startSec: cursor, endSec: trimStart });
-			}
-			cursor = trimEnd;
-		}
-
-		if (cursor < totalDuration) {
-			segments.push({ startSec: cursor, endSec: totalDuration });
-		}
-
-		return segments;
+		return computeKeepSegments(totalDuration, trimRegions);
 	}
 
 	/**
@@ -691,40 +666,11 @@ export class StreamingVideoDecoder {
 		};
 	}
 
-	/**
-	 * Splits keep-segments by overlapping speed regions, annotating each
-	 * sub-segment with its playback speed multiplier (defaults to 1×).
-	 */
 	private splitBySpeed(
 		segments: Array<{ startSec: number; endSec: number }>,
 		speedRegions?: SpeedRegion[],
 	): Array<{ startSec: number; endSec: number; speed: number }> {
-		if (!speedRegions || speedRegions.length === 0)
-			return segments.map((s) => ({ ...s, speed: 1 }));
-
-		const result: Array<{ startSec: number; endSec: number; speed: number }> = [];
-		for (const segment of segments) {
-			const overlapping = speedRegions
-				.filter((sr) => sr.startMs / 1000 < segment.endSec && sr.endMs / 1000 > segment.startSec)
-				.sort((a, b) => a.startMs - b.startMs);
-
-			if (overlapping.length === 0) {
-				result.push({ ...segment, speed: 1 });
-				continue;
-			}
-
-			let cursor = segment.startSec;
-			for (const sr of overlapping) {
-				const srStart = Math.max(sr.startMs / 1000, segment.startSec);
-				const srEnd = Math.min(sr.endMs / 1000, segment.endSec);
-				if (cursor < srStart) result.push({ startSec: cursor, endSec: srStart, speed: 1 });
-				result.push({ startSec: srStart, endSec: srEnd, speed: sr.speed });
-				cursor = srEnd;
-			}
-			if (cursor < segment.endSec)
-				result.push({ startSec: cursor, endSec: segment.endSec, speed: 1 });
-		}
-		return result.filter((s) => s.endSec - s.startSec > 0.0001);
+		return splitSegmentsBySpeed(segments, speedRegions);
 	}
 
 	/** Returns the underlying WebDemuxer instance, or null if not yet loaded. */
@@ -776,4 +722,83 @@ export class StreamingVideoDecoder {
 			);
 		});
 	}
+}
+
+/**
+ * Converts trim regions into the segments that should be kept.
+ * Returns a single full-duration segment when no trim regions are present.
+ */
+export function computeKeepSegments(
+	totalDuration: number,
+	trimRegions?: TrimRegion[],
+): Array<{ startSec: number; endSec: number }> {
+	if (!trimRegions || trimRegions.length === 0) {
+		return [{ startSec: 0, endSec: totalDuration }];
+	}
+
+	const sorted = [...trimRegions].sort((a, b) => a.startMs - b.startMs);
+	const segments: Array<{ startSec: number; endSec: number }> = [];
+	let cursor = 0;
+
+	for (const trim of sorted) {
+		const trimStart = trim.startMs / 1000;
+		const trimEnd = trim.endMs / 1000;
+		if (cursor < trimStart) {
+			segments.push({ startSec: cursor, endSec: trimStart });
+		}
+		cursor = trimEnd;
+	}
+
+	if (cursor < totalDuration) {
+		segments.push({ startSec: cursor, endSec: totalDuration });
+	}
+
+	return segments;
+}
+
+/**
+ * Splits keep-segments by overlapping speed regions, annotating each
+ * sub-segment with its playback speed multiplier (defaults to 1×).
+ */
+export function splitSegmentsBySpeed(
+	segments: Array<{ startSec: number; endSec: number }>,
+	speedRegions?: SpeedRegion[],
+): Array<{ startSec: number; endSec: number; speed: number }> {
+	if (!speedRegions || speedRegions.length === 0) return segments.map((s) => ({ ...s, speed: 1 }));
+
+	const result: Array<{ startSec: number; endSec: number; speed: number }> = [];
+	for (const segment of segments) {
+		const overlapping = speedRegions
+			.filter((sr) => sr.startMs / 1000 < segment.endSec && sr.endMs / 1000 > segment.startSec)
+			.sort((a, b) => a.startMs - b.startMs);
+
+		if (overlapping.length === 0) {
+			result.push({ ...segment, speed: 1 });
+			continue;
+		}
+
+		let cursor = segment.startSec;
+		for (const sr of overlapping) {
+			const srStart = Math.max(sr.startMs / 1000, segment.startSec);
+			const srEnd = Math.min(sr.endMs / 1000, segment.endSec);
+			if (cursor < srStart) result.push({ startSec: cursor, endSec: srStart, speed: 1 });
+			result.push({ startSec: srStart, endSec: srEnd, speed: sr.speed });
+			cursor = srEnd;
+		}
+		if (cursor < segment.endSec)
+			result.push({ startSec: cursor, endSec: segment.endSec, speed: 1 });
+	}
+	return result.filter((s) => s.endSec - s.startSec > 0.0001);
+}
+
+/** Output duration (seconds) after trims and speed changes. */
+export function computeEffectiveDurationSec(
+	totalDuration: number,
+	trimRegions?: TrimRegion[],
+	speedRegions?: SpeedRegion[],
+): number {
+	return splitSegmentsBySpeed(computeKeepSegments(totalDuration, trimRegions), speedRegions).reduce(
+		(sum, seg) => sum + (seg.endSec - seg.startSec) / seg.speed,
+		0,
+	);
 }
