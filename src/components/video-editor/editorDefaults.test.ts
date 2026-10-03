@@ -53,3 +53,26 @@ describe("editor defaults SSOT", () => {
 		});
 	});
 });
+
+describe("new-project look", () => {
+	it("is polished: gradient background, rounded corners, shadow, zoom motion blur", () => {
+		const fresh = normalizeProjectEditor({});
+		expect(fresh.wallpaper).toMatch(/gradient\(/);
+		expect(fresh.borderRadius).toBeGreaterThanOrEqual(12);
+		expect(fresh.borderRadius).toBeLessThanOrEqual(16);
+		expect(fresh.shadowIntensity).toBeGreaterThan(0);
+		expect(fresh.motionBlurAmount).toBeGreaterThan(0);
+		expect(fresh.padding).toBeGreaterThan(0);
+	});
+
+	it("never overrides values a saved project stores", () => {
+		const stored = {
+			wallpaper: "/wallpapers/wallpaper5.jpg",
+			shadowIntensity: 0,
+			borderRadius: 0,
+			motionBlurAmount: 0,
+			padding: 10,
+		};
+		expect(normalizeProjectEditor(stored)).toMatchObject(stored);
+	});
+});

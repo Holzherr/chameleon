@@ -84,7 +84,9 @@ import {
 	DEFAULT_CURSOR_SETTINGS,
 	DEFAULT_EXPORT_SETTINGS,
 	DEFAULT_GIF_SETTINGS,
+	DEFAULT_PROJECT_CURSOR,
 	DEFAULT_SOURCE_DIMENSIONS,
+	type ProjectCursorSettings,
 } from "./editorDefaults";
 import PlaybackControls from "./PlaybackControls";
 import {
@@ -284,6 +286,25 @@ export default function VideoEditor() {
 		DEFAULT_CURSOR_SETTINGS.clipToBounds,
 	);
 	const [cursorTheme, setCursorTheme] = useState(DEFAULT_CURSOR_SETTINGS.theme);
+	// Saved in the project as `editor.cursor`, so CLI edits and headless renders see it.
+	const projectCursor = useMemo<ProjectCursorSettings>(
+		() => ({
+			show: showCursor,
+			size: cursorSize,
+			smoothing: cursorSmoothing,
+			motionBlur: cursorMotionBlur,
+			clickBounce: cursorClickBounce,
+			clipToBounds: cursorClipToBounds,
+		}),
+		[
+			showCursor,
+			cursorSize,
+			cursorSmoothing,
+			cursorMotionBlur,
+			cursorClickBounce,
+			cursorClipToBounds,
+		],
+	);
 	const [nativePlatform, setNativePlatform] = useState<NativePlatform | null>(null);
 	const [recordingCursorCaptureMode, setRecordingCursorCaptureMode] =
 		useState<CursorCaptureMode | null>(null);
@@ -436,6 +457,13 @@ export default function VideoEditor() {
 			setGifLoop(normalizedEditor.gifLoop);
 			setGifSizePreset(normalizedEditor.gifSizePreset);
 			setCursorTheme(normalizedEditor.cursorTheme);
+			const loadedCursor = normalizedEditor.cursor ?? DEFAULT_PROJECT_CURSOR;
+			setShowCursor(loadedCursor.show);
+			setCursorSize(loadedCursor.size);
+			setCursorSmoothing(loadedCursor.smoothing);
+			setCursorMotionBlur(loadedCursor.motionBlur);
+			setCursorClickBounce(loadedCursor.clickBounce);
+			setCursorClipToBounds(loadedCursor.clipToBounds);
 
 			setSelectedZoomId(null);
 			setSelectedTrimId(null);
@@ -472,7 +500,7 @@ export default function VideoEditor() {
 						...(webcamSourcePath ? { webcamVideoPath: webcamSourcePath } : {}),
 						...(projectCursorCaptureMode ? { cursorCaptureMode: projectCursorCaptureMode } : {}),
 					},
-					normalizedEditor,
+					{ ...normalizedEditor, cursor: loadedCursor },
 				),
 			);
 			return true;
@@ -512,10 +540,12 @@ export default function VideoEditor() {
 			gifLoop,
 			gifSizePreset,
 			cursorTheme,
+			cursor: projectCursor,
 		});
 	}, [
 		currentProjectMedia,
 		cursorTheme,
+		projectCursor,
 		wallpaper,
 		shadowIntensity,
 		showBlur,
@@ -582,7 +612,7 @@ export default function VideoEditor() {
 									? { cursorCaptureMode: session.cursorCaptureMode }
 									: {}),
 							},
-							INITIAL_EDITOR_STATE,
+							{ ...INITIAL_EDITOR_STATE, cursor: DEFAULT_PROJECT_CURSOR },
 						),
 					);
 					return;
@@ -595,7 +625,10 @@ export default function VideoEditor() {
 					setRecordingCursorCaptureMode(null);
 					setCurrentProjectPath(null);
 					setLastSavedSnapshot(
-						createProjectSnapshot({ screenVideoPath: result.path }, INITIAL_EDITOR_STATE),
+						createProjectSnapshot(
+							{ screenVideoPath: result.path },
+							{ ...INITIAL_EDITOR_STATE, cursor: DEFAULT_PROJECT_CURSOR },
+						),
 					);
 				}
 				// No video/project/session, so leave videoPath null and let the
@@ -671,6 +704,7 @@ export default function VideoEditor() {
 				gifLoop,
 				gifSizePreset,
 				cursorTheme,
+				cursor: projectCursor,
 			};
 			const projectData = createProjectData(currentProjectMedia, editorState);
 
@@ -736,6 +770,7 @@ export default function VideoEditor() {
 			gifLoop,
 			gifSizePreset,
 			cursorTheme,
+			projectCursor,
 			videoPath,
 			t,
 		],

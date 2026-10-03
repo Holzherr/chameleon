@@ -1,7 +1,7 @@
 // Headless `--chameleon-render` job, run inside a hidden window. Loads the project the
 // same way the editor does and exports through the editor's own exporter configs.
 
-import { DEFAULT_CURSOR_SETTINGS } from "@/components/video-editor/editorDefaults";
+import { DEFAULT_PROJECT_CURSOR } from "@/components/video-editor/editorDefaults";
 import {
 	normalizeProjectEditor,
 	type ProjectEditorState,
@@ -165,17 +165,18 @@ async function renderJob(job: RenderJob): Promise<RenderOutput> {
 		nativeBridgeClient.cursor.getTelemetry(screenPath).catch(() => []),
 	]);
 
+	const cursorSettings = editor.cursor ?? DEFAULT_PROJECT_CURSOR;
 	const cursor: ExportCursorState = {
 		recordingData,
 		scale:
-			DEFAULT_CURSOR_SETTINGS.show &&
+			cursorSettings.show &&
 			hasEditableCursorOverlay(projectMedia.cursorCaptureMode, platform, recordingData)
-				? DEFAULT_CURSOR_SETTINGS.size
+				? cursorSettings.size
 				: 0,
-		smoothing: DEFAULT_CURSOR_SETTINGS.smoothing,
-		motionBlur: DEFAULT_CURSOR_SETTINGS.motionBlur,
-		clickBounce: DEFAULT_CURSOR_SETTINGS.clickBounce,
-		clipToBounds: DEFAULT_CURSOR_SETTINGS.clipToBounds,
+		smoothing: cursorSettings.smoothing,
+		motionBlur: cursorSettings.motionBlur,
+		clickBounce: cursorSettings.clickBounce,
+		clipToBounds: cursorSettings.clipToBounds,
 		theme: editor.cursorTheme,
 		telemetry,
 		clickTimestamps: deriveCursorClickTimestamps(recordingData, telemetry),

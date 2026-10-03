@@ -98,12 +98,113 @@ export function getRadialGradientShape(descriptor: string | null, width: number,
 		Math.hypot(cx, height - cy),
 		Math.hypot(width - cx, height - cy),
 	];
+	const radius = Math.max(...distances);
+
+	// CSS defaults to an ellipse; farthest-corner keeps the farthest-side aspect ratio and
+	// scales it by sqrt(2) so the ellipse passes through the corner.
+	const isCircle = /\bcircle\b/i.test(descriptor ?? "");
+	const farX = Math.max(cx, width - cx);
+	const farY = Math.max(cy, height - cy);
+	const radiusX = isCircle || farX === 0 || farY === 0 ? radius : farX * Math.SQRT2;
+	const radiusY = isCircle || farX === 0 || farY === 0 ? radius : farY * Math.SQRT2;
 
 	return {
 		cx,
 		cy,
-		radius: Math.max(...distances),
+		radius,
+		radiusX,
+		radiusY,
 	};
+}
+
+/**
+ * Splits a CSS background with several comma-separated gradient layers (first = top)
+ * and parses each. Returns null if any layer is not a gradient the exporter can draw.
+ */
+export function parseCssBackgroundLayers(input: string): ParsedGradient[] | null {
+	const layers = splitGradientArgs(input.trim());
+	if (layers.length === 0) return null;
+	const parsed: ParsedGradient[] = [];
+	for (const layer of layers) {
+		const gradient = parseCssGradient(layer);
+		if (!gradient) return null;
+		parsed.push(gradient);
+	}
+	return parsed;
+}
+
+type GradientCanvasContext = Pick<
+	CanvasRenderingContext2D,
+	| "createLinearGradient"
+	| "createRadialGradient"
+	| "fillRect"
+	| "save"
+	| "restore"
+	| "translate"
+	| "scale"
+> & { fillStyle: CanvasRenderingContext2D["fillStyle"] };
+
+/** Paints parsed layers bottom-up, matching how CSS stacks `background` layers. */
+export function paintGradientLayers(
+	ctx: GradientCanvasContext,
+	layers: ParsedGradient[],
+	width: number,
+	height: number,
+): void {
+	for (const layer of [...layers].reverse()) {
+		if (layer.type === "linear") {
+			const p = getLinearGradientPoints(
+				resolveLinearGradientAngle(layer.descriptor),
+				width,
+				height,
+			);
+			const gradient = ctx.createLinearGradient(p.x0, p.y0, p.x1, p.y1);
+			for (const stop of layer.stops) gradient.addColorStop(stop.offset, stop.color);
+			ctx.fillStyle = gradient;
+			ctx.fillRect(0, 0, width, height);
+			continue;
+		}
+		const shape = getRadialGradientShape(layer.descriptor, width, height);
+		const sy = shape.radiusX > 0 ? shape.radiusY / shape.radiusX : 1;
+		ctx.save();
+		ctx.translate(shape.cx, shape.cy);
+		ctx.scale(1, sy);
+		const gradient = ctx.createRadialGradient(0, 0, 0, 0, 0, shape.radiusX);
+		for (const stop of layer.stops) gradient.addColorStop(stop.offset, stop.color);
+		ctx.fillStyle = gradient;
+		ctx.fillRect(-shape.cx, -shape.cy / sy, width, height / sy);
+		ctx.restore();
+	}
+}
+
+/**
+ * Adds +-1 level of deterministic noise per channel so smooth gradients don't band in
+ * 8-bit output (and survive H.264 better). Skips silently when pixels can't be read.
+ */
+export function ditherCanvas(
+	ctx: Pick<CanvasRenderingContext2D, "getImageData" | "putImageData">,
+	width: number,
+	height: number,
+): void {
+	let image: ImageData;
+	try {
+		image = ctx.getImageData(0, 0, width, height);
+	} catch {
+		return;
+	}
+	const data = image.data;
+	let seed = 0x2f6b4e1d;
+	for (let i = 0; i < data.length; i += 4) {
+		// xorshift32: fast and identical on every run.
+		seed ^= seed << 13;
+		seed ^= seed >>> 17;
+		seed ^= seed << 5;
+		const n = ((seed >>> 0) % 3) - 1;
+		data[i] = data[i] + n;
+		data[i + 1] = data[i + 1] + n;
+		data[i + 2] = data[i + 2] + n;
+	}
+	ctx.putImageData(image, 0, 0);
 }
 
 function splitGradientArgs(input: string): string[] {

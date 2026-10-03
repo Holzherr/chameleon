@@ -1,6 +1,6 @@
+import { DEFAULT_BACKGROUND_VALUE } from "@/lib/backgrounds";
 import { DEFAULT_CURSOR_THEME_ID } from "@/lib/cursor/cursorThemes";
 import type { ExportFormat, ExportQuality, GifFrameRate, GifSizePreset } from "@/lib/exporter";
-import { DEFAULT_WALLPAPER } from "@/lib/wallpaper";
 import type { AspectRatio } from "@/utils/aspectRatioUtils";
 import {
 	type CursorVisualSettings,
@@ -14,6 +14,7 @@ import {
 	DEFAULT_WEBCAM_MASK_SHAPE,
 	DEFAULT_WEBCAM_POSITION,
 	DEFAULT_WEBCAM_SIZE_PRESET,
+	DEFAULT_ZOOM_MOTION_BLUR,
 	type WebcamLayoutPreset,
 	type WebcamMaskShape,
 	type WebcamPosition,
@@ -37,10 +38,12 @@ export const DEFAULT_EDITOR_APPEARANCE_SETTINGS: {
 	borderRadius: number;
 	showTrimWaveform: boolean;
 } = {
-	shadowIntensity: 0,
+	// Polished out of the box: soft shadow, rounded corners, zoom motion blur on.
+	shadowIntensity: 0.6,
 	showBlur: false,
-	motionBlurAmount: 0,
-	borderRadius: 0,
+	motionBlurAmount: DEFAULT_ZOOM_MOTION_BLUR,
+	// Preview-stage px (scaled to the export size), about 14px at 960 wide.
+	borderRadius: 14,
 	showTrimWaveform: true,
 };
 
@@ -53,7 +56,7 @@ export const DEFAULT_EDITOR_LAYOUT_SETTINGS: {
 	padding: 50,
 	aspectRatio: "16:9",
 	cropRegion: DEFAULT_CROP_REGION,
-	wallpaper: DEFAULT_WALLPAPER,
+	wallpaper: DEFAULT_BACKGROUND_VALUE,
 };
 
 export const DEFAULT_WEBCAM_SETTINGS = {
@@ -77,6 +80,26 @@ export const DEFAULT_CURSOR_SETTINGS: CursorVisualSettings & { show: boolean; th
 	clipToBounds: DEFAULT_CURSOR_CLIP_TO_BOUNDS,
 	theme: DEFAULT_CURSOR_THEME_ID,
 };
+
+/** Cursor visuals as stored in the project file (`editor.cursor`); the theme is `cursorTheme`. */
+export type ProjectCursorSettings = CursorVisualSettings & { show: boolean };
+
+export const DEFAULT_PROJECT_CURSOR: ProjectCursorSettings = {
+	show: DEFAULT_CURSOR_SETTINGS.show,
+	size: DEFAULT_CURSOR_SETTINGS.size,
+	smoothing: DEFAULT_CURSOR_SETTINGS.smoothing,
+	motionBlur: DEFAULT_CURSOR_SETTINGS.motionBlur,
+	clickBounce: DEFAULT_CURSOR_SETTINGS.clickBounce,
+	clipToBounds: DEFAULT_CURSOR_SETTINGS.clipToBounds,
+};
+
+/** Slider ranges in the cursor panel; the project normalizer clamps to these. */
+export const PROJECT_CURSOR_RANGES = {
+	size: { min: 0.5, max: 10 },
+	smoothing: { min: 0, max: 1 },
+	motionBlur: { min: 0, max: 1 },
+	clickBounce: { min: 0, max: 5 },
+} as const;
 
 export const DEFAULT_EXPORT_SETTINGS: {
 	quality: ExportQuality;
