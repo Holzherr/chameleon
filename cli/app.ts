@@ -35,6 +35,8 @@ export function findRepoRoot(startDir: string): string | null {
 	}
 }
 
+const INSTALLED_APP = "/Applications/Chameleon.app/Contents/MacOS/Chameleon";
+
 export function resolveAppCommand(
 	extraArgs: string[],
 	env: NodeJS.ProcessEnv = process.env,
@@ -46,6 +48,10 @@ export function resolveAppCommand(
 			throw new Error(`CHAMELEON_APP points to a missing file: ${packaged}`);
 		}
 		return { command: packaged, args: extraArgs };
+	}
+	// Prefer the installed app unless CHAMELEON_DEV asks for the repo build.
+	if (!env.CHAMELEON_DEV && existsSync(INSTALLED_APP)) {
+		return { command: INSTALLED_APP, args: extraArgs };
 	}
 
 	const root = findRepoRoot(moduleDir);
