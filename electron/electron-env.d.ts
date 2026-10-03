@@ -292,6 +292,28 @@ interface Window {
 			projectState: unknown;
 			logs: string[];
 		}) => Promise<{ success: boolean; path?: string; canceled?: boolean; error?: string }>;
+		/** Chameleon: the open project file changed on disk outside the app. */
+		onChameleonProjectChanged: (callback: (payload: { path: string }) => void) => () => void;
+		/** Chameleon: another launch (CLI / Finder) asked to open this project. */
+		onChameleonOpenProject: (callback: (payload: { path: string }) => void) => () => void;
+		/** Chameleon: tell main what the editor did with an external change (logged to stdout). */
+		chameleonReportReload: (
+			status: "applied" | "deferred" | "failed" | "opened",
+			detail?: string,
+		) => void;
+		/** Chameleon headless render: the job this window should run. */
+		chameleonGetRenderJob: () => Promise<{
+			projectPath: string;
+			outPath: string;
+			frameMs?: number;
+		} | null>;
+		/** Chameleon headless render: hand the finished bytes (or error) to main. */
+		chameleonRenderDone: (result: {
+			ok: boolean;
+			data?: ArrayBuffer;
+			durationMs?: number;
+			error?: string;
+		}) => Promise<void>;
 	};
 }
 

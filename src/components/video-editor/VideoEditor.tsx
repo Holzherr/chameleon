@@ -37,7 +37,6 @@ import {
 import { hasNativeCursorRecordingData } from "@/lib/cursor/nativeCursor";
 import {
 	calculateEffectiveSourceDimensions,
-	calculateMp4ExportSettings,
 	calculateOutputDimensions,
 	type ExportFormat,
 	type ExportProgress,
@@ -49,6 +48,18 @@ import {
 	type GifSizePreset,
 	VideoExporter,
 } from "@/lib/exporter";
+import {
+	buildExportSettings,
+	buildGifExporterConfig,
+	buildMp4ExporterConfig,
+	deriveCursorClickTimestamps,
+	type ExportCursorState,
+	type ExportEditorState,
+	type ExportMedia,
+	hasEditableCursorOverlay,
+	MP4_EXPORT_CODEC,
+	MP4_EXPORT_FRAME_RATE,
+} from "@/lib/exporter/exportPlan";
 import { computeFrameStepTime } from "@/lib/frameStep";
 import type { CursorCaptureMode, ProjectMedia } from "@/lib/recordingSession";
 import { matchesShortcut } from "@/lib/shortcuts";
@@ -117,15 +128,7 @@ import VideoPlayback, { VideoPlaybackRef } from "./VideoPlayback";
 
 /** Single Sonner slot so auto-caption phases update in place instead of stacking. */
 const AUTO_CAPTION_PROGRESS_TOAST_ID = "auto-caption-progress";
-
-function isClickInteractionType(interactionType: string | null | undefined) {
-	return (
-		interactionType === "click" ||
-		interactionType === "double-click" ||
-		interactionType === "right-click" ||
-		interactionType === "middle-click"
-	);
-}
+const EXTERNAL_CHANGE_TOAST_ID = "chameleon-external-change";
 
 interface ExportDiagnostics {
 	formatLabel: "GIF" | "Video";
@@ -266,19 +269,10 @@ export default function VideoEditor() {
 		useCursorTelemetry(cursorTelemetrySourcePath);
 	const { data: cursorRecordingData, error: cursorRecordingDataError } =
 		useCursorRecordingData(cursorTelemetrySourcePath);
-	const cursorClickTimestamps = useMemo<number[]>(() => {
-		const recordingClicks =
-			cursorRecordingData?.samples
-				.filter((sample) => isClickInteractionType(sample.interactionType))
-				.map((sample) => sample.timeMs) ?? [];
-		if (recordingClicks.length > 0) {
-			return recordingClicks;
-		}
-
-		return cursorTelemetry
-			.filter((sample) => isClickInteractionType(sample.interactionType))
-			.map((sample) => sample.timeMs);
-	}, [cursorRecordingData, cursorTelemetry]);
+	const cursorClickTimestamps = useMemo<number[]>(
+		() => deriveCursorClickTimestamps(cursorRecordingData, cursorTelemetry),
+		[cursorRecordingData, cursorTelemetry],
+	);
 
 	// Cursor & motion blur visual settings (non-undoable preferences)
 	const [showCursor, setShowCursor] = useState(DEFAULT_CURSOR_SETTINGS.show);
@@ -301,13 +295,11 @@ export default function VideoEditor() {
 	const nextSpeedIdRef = useRef(1);
 
 	const { shortcuts, isMac } = useShortcuts();
-	// Windows recordings include captured cursor assets. macOS hides the system
-	// cursor in ScreenCaptureKit and renders telemetry samples with OpenScreen's
-	// default arrow asset for the editable overlay.
-	const hasEditableCursorRecording =
-		recordingCursorCaptureMode === "editable-overlay" &&
-		(nativePlatform === "win32" || nativePlatform === "darwin") &&
-		hasNativeCursorRecordingData(cursorRecordingData);
+	const hasEditableCursorRecording = hasEditableCursorOverlay(
+		recordingCursorCaptureMode,
+		nativePlatform,
+		cursorRecordingData,
+	);
 	const effectiveShowCursor = showCursor && hasEditableCursorRecording;
 	const showCursorSettings = hasEditableCursorRecording;
 	const { locale, setLocale, t: rawT } = useI18n();
@@ -354,8 +346,20 @@ export default function VideoEditor() {
 		recordingCursorCaptureMode,
 	]);
 
+	const videoSourcePathRef = useRef(videoSourcePath);
+	videoSourcePathRef.current = videoSourcePath;
+	const webcamVideoSourcePathRef = useRef(webcamVideoSourcePath);
+	webcamVideoSourcePathRef.current = webcamVideoSourcePath;
+
 	const applyLoadedProject = useCallback(
-		async (candidate: unknown, path?: string | null) => {
+		async (
+			candidate: unknown,
+			path?: string | null,
+			options?: {
+				/** Keep the playhead and playback state when the media is unchanged (live reload). */
+				preservePlayback?: boolean;
+			},
+		) => {
 			if (!validateProjectData(candidate)) {
 				return false;
 			}
@@ -377,14 +381,19 @@ export default function VideoEditor() {
 				...normalizedEditor.annotationRegions.map((region) => region.endMs),
 			);
 
-			try {
-				videoPlaybackRef.current?.pause();
-			} catch {
-				// no-op
+			const sameMedia =
+				sourcePath === videoSourcePathRef.current &&
+				webcamSourcePath === webcamVideoSourcePathRef.current;
+			if (!(options?.preservePlayback && sameMedia)) {
+				try {
+					videoPlaybackRef.current?.pause();
+				} catch {
+					// no-op
+				}
+				setIsPlaying(false);
+				setCurrentTime(0);
+				setDuration(inferredDurationMs > 0 ? inferredDurationMs / 1000 : 0);
 			}
-			setIsPlaying(false);
-			setCurrentTime(0);
-			setDuration(inferredDurationMs > 0 ? inferredDurationMs / 1000 : 0);
 
 			setError(null);
 			setVideoSourcePath(sourcePath);
@@ -903,6 +912,85 @@ export default function VideoEditor() {
 			removeSaveAsListener?.();
 		};
 	}, [handleNewProject, handleLoadProject, handleSaveProject, handleSaveProjectAs]);
+
+	// Chameleon live reload: main watches the open project file and tells us when another
+	// program (e.g. the chameleon CLI) changed it. Each reload is one undo step; with unsaved
+	// edits we offer a reload instead of overwriting them.
+	const hasUnsavedChangesRef = useRef(hasUnsavedChanges);
+	hasUnsavedChangesRef.current = hasUnsavedChanges;
+
+	const reloadProjectFromDisk = useCallback(async () => {
+		const result = await nativeBridgeClient.project.loadCurrentProjectFile();
+		if (!result.success || !result.project) {
+			const reason = result.message || result.error || "unreadable project";
+			toast.error(`Could not reload project: ${reason}`);
+			window.electronAPI.chameleonReportReload("failed", reason);
+			return;
+		}
+		const applied = await applyLoadedProject(result.project, result.path ?? null, {
+			preservePlayback: true,
+		});
+		if (!applied) {
+			toast.error(t("project.invalidFormat"));
+			window.electronAPI.chameleonReportReload("failed", "invalid project format");
+			return;
+		}
+		toast.success("Project updated externally", { id: EXTERNAL_CHANGE_TOAST_ID });
+		const editor = (result.project as { editor?: Record<string, unknown> }).editor ?? {};
+		const count = (key: string) => (Array.isArray(editor[key]) ? editor[key].length : 0);
+		window.electronAPI.chameleonReportReload(
+			"applied",
+			`${result.path} (zoom ${count("zoomRegions")}, trim ${count("trimRegions")}, speed ${count("speedRegions")}, annotation ${count("annotationRegions")})`,
+		);
+	}, [applyLoadedProject, t]);
+
+	useEffect(() => {
+		return window.electronAPI.onChameleonProjectChanged(({ path }) => {
+			if (!hasUnsavedChangesRef.current) {
+				void reloadProjectFromDisk();
+				return;
+			}
+			toast.warning("Project changed on disk. You have unsaved edits.", {
+				id: EXTERNAL_CHANGE_TOAST_ID,
+				duration: Number.POSITIVE_INFINITY,
+				action: { label: "Reload", onClick: () => void reloadProjectFromDisk() },
+			});
+			window.electronAPI.chameleonReportReload("deferred", path);
+		});
+	}, [reloadProjectFromDisk]);
+
+	const openProjectAtPath = useCallback(
+		async (path: string) => {
+			const result = await window.electronAPI.loadProjectFileFromPath(path);
+			if (!result.success) {
+				toast.error(result.message || t("project.failedToLoad"));
+				return;
+			}
+			const restored = await applyLoadedProject(result.project, result.path ?? null);
+			if (!restored) {
+				toast.error(t("project.invalidFormat"));
+				return;
+			}
+			toast.success(t("project.loadedFrom", { path: result.path ?? "" }));
+			window.electronAPI.chameleonReportReload("opened", result.path);
+		},
+		[applyLoadedProject, t],
+	);
+
+	useEffect(() => {
+		return window.electronAPI.onChameleonOpenProject(({ path }) => {
+			if (!hasUnsavedChangesRef.current) {
+				void openProjectAtPath(path);
+				return;
+			}
+			const name = path.split(/[\\/]/).pop() ?? path;
+			toast.warning(`Open ${name}? Unsaved edits to the current project will be lost.`, {
+				id: EXTERNAL_CHANGE_TOAST_ID,
+				duration: Number.POSITIVE_INFINITY,
+				action: { label: "Open", onClick: () => void openProjectAtPath(path) },
+			});
+		});
+	}, [openProjectAtPath]);
 
 	useEffect(() => {
 		let canceled = false;
@@ -1861,64 +1949,53 @@ export default function VideoEditor() {
 					videoPlaybackRef.current?.pause();
 				}
 
-				const sourceWidth = video.videoWidth || DEFAULT_SOURCE_DIMENSIONS.width;
-				const sourceHeight = video.videoHeight || DEFAULT_SOURCE_DIMENSIONS.height;
-				const effectiveSourceDimensions = calculateEffectiveSourceDimensions(
-					sourceWidth,
-					sourceHeight,
-					cropRegion,
-				);
-				const aspectRatioValue =
-					aspectRatio === "native"
-						? getNativeAspectRatioValue(sourceWidth, sourceHeight, cropRegion)
-						: getAspectRatioValue(aspectRatio);
-
 				// Preview container dimensions, used for scaling.
 				const playbackRef = videoPlaybackRef.current;
 				const containerElement = playbackRef?.containerRef?.current;
-				const previewWidth = containerElement?.clientWidth || DEFAULT_SOURCE_DIMENSIONS.width;
-				const previewHeight = containerElement?.clientHeight || DEFAULT_SOURCE_DIMENSIONS.height;
+				const media: ExportMedia = {
+					videoUrl: videoPath,
+					webcamVideoUrl: webcamVideoPath || undefined,
+					sourceWidth: video.videoWidth || DEFAULT_SOURCE_DIMENSIONS.width,
+					sourceHeight: video.videoHeight || DEFAULT_SOURCE_DIMENSIONS.height,
+					previewWidth: containerElement?.clientWidth || DEFAULT_SOURCE_DIMENSIONS.width,
+					previewHeight: containerElement?.clientHeight || DEFAULT_SOURCE_DIMENSIONS.height,
+				};
+				const exportEditor: ExportEditorState = {
+					wallpaper,
+					zoomRegions,
+					trimRegions,
+					speedRegions,
+					annotationRegions,
+					shadowIntensity,
+					showBlur,
+					motionBlurAmount,
+					borderRadius,
+					padding,
+					cropRegion,
+					aspectRatio,
+					webcamLayoutPreset,
+					webcamMaskShape,
+					webcamMirrored,
+					webcamReactiveZoom,
+					webcamSizePreset,
+					webcamPosition,
+				};
+				const exportCursor: ExportCursorState = {
+					recordingData: cursorRecordingData,
+					scale: effectiveShowCursor ? cursorSize : 0,
+					smoothing: cursorSmoothing,
+					motionBlur: cursorMotionBlur,
+					clickBounce: cursorClickBounce,
+					clipToBounds: cursorClipToBounds,
+					theme: cursorTheme,
+					telemetry: cursorTelemetry,
+					clickTimestamps: cursorClickTimestamps,
+				};
 
 				if (settings.format === "gif" && settings.gifConfig) {
 					// GIF Export
 					const gifExporter = new GifExporter({
-						videoUrl: videoPath,
-						webcamVideoUrl: webcamVideoPath || undefined,
-						width: settings.gifConfig.width,
-						height: settings.gifConfig.height,
-						frameRate: settings.gifConfig.frameRate,
-						loop: settings.gifConfig.loop,
-						sizePreset: settings.gifConfig.sizePreset,
-						wallpaper,
-						zoomRegions,
-						trimRegions,
-						speedRegions,
-						showShadow: shadowIntensity > 0,
-						shadowIntensity,
-						showBlur,
-						motionBlurAmount,
-						borderRadius,
-						padding,
-						videoPadding: padding,
-						cropRegion,
-						cursorRecordingData,
-						cursorScale: effectiveShowCursor ? cursorSize : 0,
-						cursorSmoothing,
-						cursorMotionBlur,
-						cursorClickBounce,
-						cursorClipToBounds,
-						cursorTheme,
-						annotationRegions,
-						webcamLayoutPreset,
-						webcamMaskShape,
-						webcamMirrored,
-						webcamReactiveZoom,
-						webcamSizePreset,
-						webcamPosition,
-						previewWidth,
-						previewHeight,
-						cursorTelemetry,
-						cursorClickTimestamps,
+						...buildGifExporterConfig(settings.gifConfig, media, exportEditor, exportCursor),
 						onProgress: (progress: ExportProgress) => {
 							setExportProgress(progress);
 						},
@@ -1965,54 +2042,11 @@ export default function VideoEditor() {
 				} else {
 					// MP4 Export
 					const quality = settings.quality || exportQuality;
-					const {
-						width: exportWidth,
-						height: exportHeight,
-						bitrate,
-					} = calculateMp4ExportSettings({
-						quality,
-						sourceWidth: effectiveSourceDimensions.width,
-						sourceHeight: effectiveSourceDimensions.height,
-						aspectRatioValue,
-					});
+					const mp4Config = buildMp4ExporterConfig(quality, media, exportEditor, exportCursor);
+					const { width: exportWidth, height: exportHeight, bitrate } = mp4Config;
 
 					const exporter = new VideoExporter({
-						videoUrl: videoPath,
-						webcamVideoUrl: webcamVideoPath || undefined,
-						width: exportWidth,
-						height: exportHeight,
-						frameRate: 60,
-						bitrate,
-						codec: "avc1.640033",
-						wallpaper,
-						zoomRegions,
-						trimRegions,
-						speedRegions,
-						showShadow: shadowIntensity > 0,
-						shadowIntensity,
-						showBlur,
-						motionBlurAmount,
-						borderRadius,
-						padding,
-						cropRegion,
-						cursorRecordingData,
-						cursorScale: effectiveShowCursor ? cursorSize : 0,
-						cursorSmoothing,
-						cursorMotionBlur,
-						cursorClickBounce,
-						cursorClipToBounds,
-						cursorTheme,
-						annotationRegions,
-						webcamLayoutPreset,
-						webcamMaskShape,
-						webcamMirrored,
-						webcamReactiveZoom,
-						webcamSizePreset,
-						webcamPosition,
-						previewWidth,
-						previewHeight,
-						cursorTelemetry,
-						cursorClickTimestamps,
+						...mp4Config,
 						onProgress: (progress: ExportProgress) => {
 							setExportProgress(progress);
 						},
@@ -2051,8 +2085,8 @@ export default function VideoEditor() {
 							sourcePath: videoSourcePath ?? videoPath,
 							width: exportWidth,
 							height: exportHeight,
-							frameRate: 60,
-							codec: "avc1.640033",
+							frameRate: MP4_EXPORT_FRAME_RATE,
+							codec: MP4_EXPORT_CODEC,
 							bitrate,
 						});
 						setExportError(message);
@@ -2139,40 +2173,17 @@ export default function VideoEditor() {
 			return;
 		}
 
-		// Build export settings from current state
-		const sourceWidth = video.videoWidth || DEFAULT_SOURCE_DIMENSIONS.width;
-		const sourceHeight = video.videoHeight || DEFAULT_SOURCE_DIMENSIONS.height;
-		const effectiveSourceDimensions = calculateEffectiveSourceDimensions(
-			sourceWidth,
-			sourceHeight,
-			cropRegion,
-		);
-		const aspectRatioValue =
-			aspectRatio === "native"
-				? getNativeAspectRatioValue(sourceWidth, sourceHeight, cropRegion)
-				: getAspectRatioValue(aspectRatio);
-		const gifDimensions = calculateOutputDimensions(
-			effectiveSourceDimensions.width,
-			effectiveSourceDimensions.height,
-			gifSizePreset,
-			GIF_SIZE_PRESETS,
-			aspectRatioValue,
-		);
-
-		const settings: ExportSettings = {
+		const settings = buildExportSettings({
 			format: exportFormat,
-			quality: exportFormat === "mp4" ? exportQuality : undefined,
-			gifConfig:
-				exportFormat === "gif"
-					? {
-							frameRate: gifFrameRate,
-							loop: gifLoop,
-							sizePreset: gifSizePreset,
-							width: gifDimensions.width,
-							height: gifDimensions.height,
-						}
-					: undefined,
-		};
+			quality: exportQuality,
+			gifFrameRate,
+			gifLoop,
+			gifSizePreset,
+			sourceWidth: video.videoWidth || DEFAULT_SOURCE_DIMENSIONS.width,
+			sourceHeight: video.videoHeight || DEFAULT_SOURCE_DIMENSIONS.height,
+			cropRegion,
+			aspectRatio,
+		});
 
 		setShowExportDialog(true);
 		setExportError(null);

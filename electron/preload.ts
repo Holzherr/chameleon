@@ -280,4 +280,31 @@ contextBridge.exposeInMainWorld("electronAPI", {
 	sendCloseConfirmResponse: (choice: "save" | "discard" | "cancel") => {
 		ipcRenderer.send("close-confirm-response", choice);
 	},
+	onChameleonProjectChanged: (callback: (payload: { path: string }) => void) => {
+		const listener = (_event: unknown, payload: { path: string }) => callback(payload);
+		ipcRenderer.on("chameleon-project-changed", listener);
+		return () => ipcRenderer.removeListener("chameleon-project-changed", listener);
+	},
+	onChameleonOpenProject: (callback: (payload: { path: string }) => void) => {
+		const listener = (_event: unknown, payload: { path: string }) => callback(payload);
+		ipcRenderer.on("chameleon-open-project", listener);
+		return () => ipcRenderer.removeListener("chameleon-open-project", listener);
+	},
+	chameleonReportReload: (
+		status: "applied" | "deferred" | "failed" | "opened",
+		detail?: string,
+	) => {
+		ipcRenderer.send("chameleon-reload-status", status, detail);
+	},
+	chameleonGetRenderJob: () => {
+		return ipcRenderer.invoke("chameleon-get-render-job");
+	},
+	chameleonRenderDone: (result: {
+		ok: boolean;
+		data?: ArrayBuffer;
+		durationMs?: number;
+		error?: string;
+	}) => {
+		return ipcRenderer.invoke("chameleon-render-done", result);
+	},
 });

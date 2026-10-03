@@ -12,6 +12,8 @@ import {
 	Tray,
 } from "electron";
 import { ShortcutBinding } from "../src/lib/shortcuts";
+import { formatResultLine, parseChameleonArgs } from "./chameleon/args";
+import { prepareRenderMode, runRenderMode } from "./chameleon/renderMode";
 import {
 	loadAndRegisterGlobalShortcut,
 	registerOpenAppShortcut,
@@ -47,6 +49,31 @@ if (process.platform === "linux") {
 }
 
 export const RECORDINGS_DIR = path.join(app.getPath("userData"), "recordings");
+
+// Chameleon CLI entry points (see specs/claude-control.md):
+//   --chameleon-open=<project>    open a project, forwarded to a running instance
+//   --chameleon-render=<project> --chameleon-out=<file> [--chameleon-frame-ms=<n>]
+//                                 headless export; independent of any running instance
+const chameleonArgs = parseChameleonArgs(process.argv);
+const isRenderMode = Boolean(chameleonArgs.render || chameleonArgs.renderError);
+let pendingOpenPath: string | null = chameleonArgs.openPath
+	? path.resolve(chameleonArgs.openPath)
+	: null;
+let isPrimaryInstance = true;
+
+if (isRenderMode) {
+	prepareRenderMode();
+} else {
+	isPrimaryInstance = app.requestSingleInstanceLock({ chameleonOpen: pendingOpenPath });
+	if (!isPrimaryInstance) {
+		if (pendingOpenPath) {
+			process.stdout.write(
+				`${formatResultLine({ ok: true, path: pendingOpenPath, forwarded: true })}\n`,
+			);
+		}
+		app.exit(0);
+	}
+}
 
 async function ensureRecordingsDir() {
 	try {
@@ -341,6 +368,68 @@ function updateTrayMenu(recording: boolean = false) {
 	tray.setContextMenu(Menu.buildFromTemplate(menuTemplate));
 }
 
+type ChameleonIpcApi = ReturnType<typeof registerIpcHandlers>;
+let chameleonIpcApi: ChameleonIpcApi | null = null;
+let isRecordingActive = false;
+
+/**
+ * Open a project handed to us from outside (CLI, second launch, Finder). The editor
+ * decides itself when it's already open (it may have unsaved changes); otherwise main
+ * loads the file (path approval included) and switches to the editor.
+ */
+async function openProjectFromOutside(filePath: string) {
+	const resolved = path.resolve(filePath);
+	if (!app.isReady() || !chameleonIpcApi) {
+		pendingOpenPath = resolved;
+		return;
+	}
+	if (isRecordingActive) {
+		console.warn("[chameleon] ignoring open request while recording:", resolved);
+		return;
+	}
+
+	const window = mainWindow;
+	if (window && !window.isDestroyed() && isEditorWindow(window)) {
+		window.webContents.send("chameleon-open-project", { path: resolved });
+		if (window.isMinimized()) window.restore();
+		window.show();
+		window.focus();
+		return;
+	}
+
+	const result = await chameleonIpcApi.loadProjectFileFromPath(resolved);
+	if (!result.success) {
+		console.error("[chameleon] could not open project:", resolved, result.message ?? result.error);
+		if (!mainWindow || mainWindow.isDestroyed()) showMainWindow();
+		return;
+	}
+	createEditorWindowWrapper();
+	mainWindow?.once("ready-to-show", () => mainWindow?.focus());
+}
+
+app.on("open-file", (event, filePath) => {
+	event.preventDefault();
+	if (isRenderMode) return;
+	void openProjectFromOutside(filePath);
+});
+
+app.on("second-instance", (_event, argv, workingDirectory, additionalData) => {
+	const forwarded = (additionalData as { chameleonOpen?: string | null } | undefined)
+		?.chameleonOpen;
+	const fromArgv = parseChameleonArgs(argv).openPath;
+	const openPath = forwarded ?? (fromArgv ? path.resolve(workingDirectory, fromArgv) : null);
+	if (openPath) {
+		void openProjectFromOutside(openPath);
+		return;
+	}
+	showMainWindow();
+});
+
+ipcMain.on("chameleon-reload-status", (_event, status: string, detail?: string) => {
+	const what = status === "opened" ? "project opened" : `external project change ${status}`;
+	console.log(`[chameleon] ${what}${detail ? `: ${detail}` : ""}`);
+});
+
 let editorHasUnsavedChanges = false;
 let isForceClosing = false;
 let isCloseConfirmInFlight = false;
@@ -434,6 +523,7 @@ app.on("window-all-closed", () => {
 });
 
 app.on("activate", () => {
+	if (isRenderMode) return;
 	// On macOS, re-open a window when the dock icon is clicked and none are open.
 	const hasVisibleWindow = BrowserWindow.getAllWindows().some((window) => {
 		if (window.isDestroyed() || !window.isVisible()) {
@@ -454,6 +544,27 @@ app.on("will-quit", () => {
 });
 
 app.whenReady().then(async () => {
+	if (!isPrimaryInstance) return;
+	if (isRenderMode) {
+		let renderWindow: BrowserWindow | null = null;
+		ipcMain.handle("set-locale", (_, locale: string) => setMainLocale(locale));
+		registerIpcHandlers(
+			() => undefined,
+			() => {
+				throw new Error("Source selector is unavailable in render mode");
+			},
+			() => {
+				throw new Error("Countdown overlay is unavailable in render mode");
+			},
+			() => renderWindow,
+			() => null,
+		);
+		await runRenderMode(chameleonArgs.render, chameleonArgs.renderError, (window) => {
+			renderWindow = window;
+		});
+		return;
+	}
+
 	// Force "regular" activation policy so the Dock icon appears. The HUD overlay
 	// (transparent, frameless, skipTaskbar) is the first window, and AppKit would
 	// otherwise classify us as an accessory app.
@@ -541,7 +652,7 @@ app.whenReady().then(async () => {
 		showMainWindow();
 	}
 
-	registerIpcHandlers(
+	chameleonIpcApi = registerIpcHandlers(
 		createEditorWindowWrapper,
 		createSourceSelectorWindowWrapper,
 		createCountdownOverlayWindowWrapper,
@@ -550,6 +661,7 @@ app.whenReady().then(async () => {
 		() => countdownOverlayWindow,
 		(recording: boolean, sourceName: string) => {
 			selectedSourceName = sourceName;
+			isRecordingActive = recording;
 			if (!tray) createTray();
 			updateTrayMenu(recording);
 			if (!recording) {
@@ -560,6 +672,14 @@ app.whenReady().then(async () => {
 	);
 
 	await loadAndRegisterGlobalShortcut(showMainWindow);
+
+	if (pendingOpenPath) {
+		const openPath = pendingOpenPath;
+		pendingOpenPath = null;
+		await openProjectFromOutside(openPath);
+		if (!mainWindow || mainWindow.isDestroyed()) createWindow();
+		return;
+	}
 
 	createWindow();
 });

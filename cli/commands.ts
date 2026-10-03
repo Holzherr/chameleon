@@ -812,27 +812,27 @@ export async function cmdFrame(args: ParsedArgs): Promise<CommandOutput> {
 	if (!outArg) throw new CliError("missing -o <out.png>");
 	const out = path.resolve(outArg);
 	if (!/\.png$/i.test(out)) throw new CliError("output must end in .png");
-	let timelineMs: number;
+	// The app renders frames at source-video time (the editor playhead's units).
+	let sourceMs: number;
 	if (flagBool(args, "timeline")) {
-		timelineMs = t;
 		const total = editedDurationMs(ctx.segments);
 		if (t > total) throw new CliError(`time is past the edited duration ${formatTime(total)}`);
+		sourceMs = timelineToSource(ctx.segments, t, "start");
 	} else {
-		const mapped = sourceToTimeline(ctx.segments, t);
-		if (mapped.trimmed)
+		if (sourceToTimeline(ctx.segments, t).trimmed)
 			throw new CliError(
 				`source time ${formatTime(t)} is inside a cut; it never appears in the output`,
 			);
-		timelineMs = mapped.timelineMs;
+		sourceMs = t;
 	}
-	timelineMs = Math.round(timelineMs);
+	sourceMs = Math.round(sourceMs);
 	const res = await launchApp(
 		[
 			`--chameleon-render=${ctx.project.path}`,
 			`--chameleon-out=${out}`,
-			`--chameleon-frame-ms=${timelineMs}`,
+			`--chameleon-frame-ms=${sourceMs}`,
 		],
 		{ wait: true },
 	);
-	return appResultOutput("frame", res, { out, timelineMs });
+	return appResultOutput("frame", res, { out, sourceMs });
 }

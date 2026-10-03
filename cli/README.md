@@ -27,7 +27,7 @@ Needs Node 22+, ffmpeg/ffprobe (`/opt/homebrew/bin` or PATH). Every command take
 - Times: `12.5`, `12.5s`, `1500ms`, `1:02.25` (seconds by default).
 - Every region in the project file is in **source video time**: the exporter decodes the source, drops trimmed spans, and renders each frame at its source timestamp. The transcript is in source time too, so its numbers can be passed straight to `cut`/`zoom`/`text`.
 - `--timeline` reads `<start> <end>` as times on the edited output (after cuts and speed) and converts them to source time. At a cut point, a start maps to just after the cut and an end to just before it.
-- `frame <time>` takes source time by default (error if that moment is cut) or timeline time with `--timeline`; the app receives timeline ms.
+- `frame <time>` takes source time by default (error if that moment is cut) or timeline time with `--timeline`; the app receives source ms (the editor playhead's units).
 
 ## Snapping
 
