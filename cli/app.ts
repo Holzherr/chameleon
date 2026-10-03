@@ -75,6 +75,12 @@ export function resolveAppCommand(
 	return { command: electronBinary, args: [root, ...extraArgs] };
 }
 
+/** `/X.app/Contents/MacOS/Y` → `/X.app`; null for a binary outside an app bundle. */
+export function appBundleOf(binary: string): string | null {
+	const match = /^(.*\.app)\/Contents\/MacOS\/[^/]+$/.exec(binary);
+	return match ? match[1] : null;
+}
+
 function childEnv(): NodeJS.ProcessEnv {
 	const env = { ...process.env };
 	// Set by some Node-based hosts; it would make Electron run as plain Node.
@@ -94,7 +100,14 @@ export async function launchApp(
 	const { command, args: fullArgs } = resolveAppCommand(args);
 
 	if (!opts.wait) {
-		const child = spawn(command, fullArgs, {
+		// A process spawned straight from a shell is "responsible" to the terminal, so macOS
+		// would file the GUI's Screen Recording/Accessibility requests under the terminal.
+		// Launch bundled apps through LaunchServices so they are attributed to Chameleon.
+		const bundle = process.platform === "darwin" ? appBundleOf(command) : null;
+		const [launcher, launcherArgs]: [string, string[]] = bundle
+			? ["/usr/bin/open", ["-n", "-a", bundle, "--args", ...fullArgs]]
+			: [command, fullArgs];
+		const child = spawn(launcher, launcherArgs, {
 			detached: true,
 			stdio: "ignore",
 			env: childEnv(),

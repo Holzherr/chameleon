@@ -38,6 +38,11 @@ import {
 	emptyCursorRecordingData,
 	parseCursorRecordingFile,
 } from "../../src/native/cursorRecordingFile";
+import {
+	isProjectFilePath,
+	OPENABLE_PROJECT_EXTENSIONS,
+	PROJECT_EXTENSION,
+} from "../chameleon/args";
 import { ProjectFileWatcher } from "../chameleon/projectWatcher";
 import { mainT } from "../i18n";
 import { RECORDINGS_DIR } from "../main";
@@ -48,7 +53,8 @@ import { patchWebmDurationOnDisk } from "../recording/webm-duration";
 import { registerNativeBridgeHandlers } from "./nativeBridge";
 import { RecordingStreamRegistry, registerRecordingStreamHandlers } from "./recordingStream";
 
-const PROJECT_FILE_EXTENSION = "openscreen";
+const PROJECT_FILE_EXTENSION = PROJECT_EXTENSION.slice(1);
+const OPENABLE_PROJECT_DIALOG_EXTENSIONS = OPENABLE_PROJECT_EXTENSIONS.map((ext) => ext.slice(1));
 export const SHORTCUTS_FILE = path.join(app.getPath("userData"), "shortcuts.json");
 const RECORDING_FILE_PREFIX = "recording-";
 const RECORDING_SESSION_SUFFIX = ".session.json";
@@ -568,7 +574,7 @@ async function findNativeWindowsCaptureHelperPath() {
 function getNativeMacCaptureHelperCandidates() {
 	const envPath = process.env.OPENSCREEN_SCK_CAPTURE_EXE?.trim();
 	const archTag = process.arch === "arm64" ? "darwin-arm64" : "darwin-x64";
-	const helperName = "openscreen-screencapturekit-helper";
+	const helperName = "chameleon-screencapturekit-helper";
 	return [
 		envPath,
 		resolveUnpackedAppPath("electron", "native", "screencapturekit", "build", helperName),
@@ -1186,6 +1192,8 @@ export function registerIpcHandlers(
 	onRecordingStateChange?: (recording: boolean, sourceName: string) => void,
 	_switchToHud?: () => void,
 ) {
+	let screenAccessProbed = false;
+
 	async function requestScreenAccess() {
 		if (process.platform !== "darwin") {
 			return { success: true, granted: true, status: "granted" };
@@ -1198,8 +1206,14 @@ export function registerIpcHandlers(
 			}
 
 			// Screen recording has no askForMediaAccess equivalent, so trigger the
-			// TCC prompt without opening OpenScreen's source selector above it.
-			if (status === "not-determined") {
+			// TCC prompt without opening Chameleon's source selector above it.
+			// Electron reports "denied" (never "not-determined") for screen until access
+			// is granted, because CGPreflightScreenCaptureAccess is a boolean. Gating the
+			// probe on "not-determined" meant the app never asked macOS, so it never got
+			// a row under Screen & System Audio Recording. Probe once per launch instead;
+			// macOS shows the prompt only if the user hasn't answered it yet.
+			if (status === "not-determined" || !screenAccessProbed) {
+				screenAccessProbed = true;
 				const mainWin = getMainWindow();
 				if (mainWin && !mainWin.isDestroyed()) {
 					if (!mainWin.isVisible()) {
@@ -1312,7 +1326,7 @@ export function registerIpcHandlers(
 			const detail =
 				access.status === "missing-helper"
 					? "The cursor helper couldn't be found in this build, so the editable cursor can't be enabled. Rebuild the native helper (npm run build:native:mac) or switch the HUD cursor mode to system."
-					: "Allow OpenScreen under System Settings → Privacy & Security → Accessibility, then press record again to start the countdown.";
+					: "Allow Chameleon under System Settings → Privacy & Security → Accessibility, then press record again to start the countdown.";
 			const messageOptions = {
 				type: "warning",
 				buttons: ["Open Accessibility Settings", "Cancel"],
@@ -1347,7 +1361,7 @@ export function registerIpcHandlers(
 					cancelId: 1,
 					message: "Screen Recording permission is required",
 					detail:
-						"Allow OpenScreen in macOS System Settings, then come back and choose a screen or window.",
+						"Allow Chameleon in macOS System Settings, then come back and choose a screen or window.",
 				} satisfies Electron.MessageBoxOptions;
 				const result =
 					mainWin && !mainWin.isDestroyed()
@@ -2582,7 +2596,7 @@ export function registerIpcHandlers(
 					filters: [
 						{
 							name: mainT("dialogs", "fileDialogs.openscreenProject"),
-							extensions: [PROJECT_FILE_EXTENSION],
+							extensions: OPENABLE_PROJECT_DIALOG_EXTENSIONS,
 						},
 						{ name: "JSON", extensions: ["json"] },
 						{ name: mainT("dialogs", "fileDialogs.allFiles"), extensions: ["*"] },
@@ -2628,8 +2642,8 @@ export function registerIpcHandlers(
 				return { success: false, message: "Invalid file path" };
 			}
 			// Validate extension and readability
-			if (path.extname(filePath).toLowerCase() !== `.${PROJECT_FILE_EXTENSION}`) {
-				return { success: false, message: "Not an Openscreen project file" };
+			if (!isProjectFilePath(filePath)) {
+				return { success: false, message: "Not a Chameleon project file" };
 			}
 			const stats = await fs.stat(filePath).catch(() => null);
 			if (!stats?.isFile()) {
@@ -2781,7 +2795,7 @@ export function registerIpcHandlers(
 		) => {
 			const { filePath, canceled } = await dialog.showSaveDialog({
 				title: "Save Diagnostic File",
-				defaultPath: `openscreen-diagnostic-${Date.now()}.json`,
+				defaultPath: `chameleon-diagnostic-${Date.now()}.json`,
 				filters: [{ name: "JSON", extensions: ["json"] }],
 			});
 

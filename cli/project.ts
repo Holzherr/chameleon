@@ -16,10 +16,11 @@ import type {
 	ZoomRegion,
 } from "@/components/video-editor/types";
 import type { ProjectMedia } from "@/lib/recordingSession";
+import { isProjectFilePath, PROJECT_EXTENSION } from "../electron/chameleon/args";
 import { CliError } from "./errors";
 import { writeFileAtomic } from "./media";
 
-export const PROJECT_EXTENSION = ".openscreen";
+export { isProjectFilePath, PROJECT_EXTENSION };
 
 /**
  * A project as read from disk. `data.editor` is kept as stored (not normalized)
@@ -47,9 +48,7 @@ export async function loadProject(projectPath: string): Promise<LoadedProject> {
 		throw new CliError(`project is not valid JSON: ${abs}`);
 	}
 	if (!validateProjectData(parsed)) {
-		throw new CliError(
-			`not a Chameleon/OpenScreen project (missing version, media or editor): ${abs}`,
-		);
+		throw new CliError(`not a Chameleon project (missing version, media or editor): ${abs}`);
 	}
 	const media = resolveProjectMedia(parsed);
 	if (!media) throw new CliError(`project has no screen video: ${abs}`);

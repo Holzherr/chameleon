@@ -46,7 +46,7 @@ type MacCursorEvent =
 			leftButtonReleased?: boolean;
 	  };
 
-const HELPER_NAME = "openscreen-macos-cursor-helper";
+const HELPER_NAME = "chameleon-macos-cursor-helper";
 const READY_TIMEOUT_MS = 5_000;
 
 function helperCandidates() {

@@ -127,8 +127,8 @@ final class ScreenCaptureRecorder: NSObject, SCStreamOutput, SCStreamDelegate {
 	}
 
 	private let request: RecordingRequest
-	private let sampleQueue = DispatchQueue(label: "app.openscreen.sck-helper.samples")
-	private let stateQueue = DispatchQueue(label: "app.openscreen.sck-helper.state")
+	private let sampleQueue = DispatchQueue(label: "dev.brambruesch.chameleon.sck-helper.samples")
+	private let stateQueue = DispatchQueue(label: "dev.brambruesch.chameleon.sck-helper.state")
 	private var stream: SCStream?
 	private var writer: AVAssetWriter?
 	private var videoInput: AVAssetWriterInput?
@@ -628,7 +628,7 @@ final class ScreenCaptureRecorder: NSObject, SCStreamOutput, SCStreamDelegate {
 }
 
 @main
-struct OpenScreenScreenCaptureKitHelper {
+struct ChameleonScreenCaptureKitHelper {
 	static func main() async {
 		do {
 			guard CommandLine.arguments.count == 2 else {

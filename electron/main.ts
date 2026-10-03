@@ -75,6 +75,12 @@ if (isRenderMode) {
 	}
 }
 
+// MIT notice: Chameleon is built on OpenScreen; keep the credit in the About panel.
+app.setAboutPanelOptions({
+	applicationName: "Chameleon",
+	credits: "Based on OpenScreen, copyright (c) 2025 Siddharth Vaddem, MIT License.",
+});
+
 async function ensureRecordingsDir() {
 	try {
 		await fs.mkdir(RECORDINGS_DIR, { recursive: true });
@@ -115,7 +121,10 @@ const isMac = process.platform === "darwin";
 const trayIconSize = isMac ? 16 : 24;
 
 // Tray Icons
-const defaultTrayIcon = getTrayIcon("openscreen.png", trayIconSize);
+// macOS: black glyph as a template image so the menu bar tints it for light/dark.
+const defaultTrayIcon = isMac
+	? getTrayIcon("chameleon.png", trayIconSize, { template: true })
+	: getTrayIcon("chameleon-logo.png", trayIconSize);
 const recordingTrayIcon = getTrayIcon("rec-button.png", trayIconSize);
 
 function createWindow() {
@@ -169,7 +178,7 @@ function setupApplicationMenu() {
 			submenu: [
 				{
 					role: "about",
-					label: mainT("common", "actions.about") || "About OpenScreen",
+					label: mainT("common", "actions.about") || "About Chameleon",
 				},
 				{ type: "separator" },
 				{
@@ -179,7 +188,7 @@ function setupApplicationMenu() {
 				{ type: "separator" },
 				{
 					role: "hide",
-					label: mainT("common", "actions.hide") || "Hide OpenScreen",
+					label: mainT("common", "actions.hide") || "Hide Chameleon",
 				},
 				{
 					role: "hideOthers",
@@ -320,14 +329,16 @@ function createTray() {
 	});
 }
 
-function getTrayIcon(filename: string, size: number) {
-	return nativeImage
-		.createFromPath(path.join(process.env.VITE_PUBLIC || RENDERER_DIST, filename))
-		.resize({
-			width: size,
-			height: size,
-			quality: "best",
-		});
+function getTrayIcon(filename: string, size: number, opts: { template?: boolean } = {}) {
+	const source = nativeImage.createFromPath(
+		path.join(process.env.VITE_PUBLIC || RENDERER_DIST, filename),
+	);
+	// Template glyphs aren't square; fit the height and keep the aspect ratio.
+	const image = opts.template
+		? source.resize({ height: size, quality: "best" })
+		: source.resize({ width: size, height: size, quality: "best" });
+	if (opts.template) image.setTemplateImage(true);
+	return image;
 }
 
 function updateTrayMenu(recording: boolean = false) {
@@ -337,7 +348,7 @@ function updateTrayMenu(recording: boolean = false) {
 		? mainT("common", "actions.recordingStatus", {
 				source: selectedSourceName,
 			}) || `Recording: ${selectedSourceName}`
-		: "OpenScreen";
+		: "Chameleon";
 	const menuTemplate = recording
 		? [
 				{

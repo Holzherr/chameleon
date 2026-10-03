@@ -18,11 +18,10 @@ describe("parseChameleonArgs", () => {
 		expect(parseChameleonArgs(["electron", "."])).toEqual({});
 	});
 
-	it("builds an MP4 render job", () => {
+	it.each(["/p/x.chameleon", "/p/x.openscreen"])("builds an MP4 render job for %s", (project) => {
 		expect(
-			parseChameleonArgs(["--chameleon-render=/p/x.openscreen", "--chameleon-out=/o/out.mp4"])
-				.render,
-		).toEqual({ projectPath: "/p/x.openscreen", outPath: "/o/out.mp4" });
+			parseChameleonArgs([`--chameleon-render=${project}`, "--chameleon-out=/o/out.mp4"]).render,
+		).toEqual({ projectPath: project, outPath: "/o/out.mp4" });
 	});
 
 	it("builds a frame job", () => {

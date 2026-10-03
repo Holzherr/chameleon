@@ -13,8 +13,8 @@ if (process.platform !== "darwin") {
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(__dirname, "..");
-const helperName = "openscreen-screencapturekit-helper";
-const cursorHelperName = "openscreen-macos-cursor-helper";
+const helperName = "chameleon-screencapturekit-helper";
+const cursorHelperName = "chameleon-macos-cursor-helper";
 const packageDir = path.join(root, "electron", "native", "screencapturekit");
 const buildDir = path.join(packageDir, "build");
 const swiftBuildDir = path.join(buildDir, "swiftpm");

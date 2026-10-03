@@ -53,6 +53,7 @@ import {
 import {
 	createNewProjectData,
 	defaultProjectPath,
+	isProjectFilePath,
 	type LoadedProject,
 	loadProject,
 	PROJECT_EXTENSION,
@@ -182,8 +183,8 @@ export async function cmdNew(args: ParsedArgs): Promise<CommandOutput> {
 	const webcam = webcamArg ? path.resolve(webcamArg) : undefined;
 	if (webcam) await assertFile(webcam, "webcam video");
 	const out = path.resolve(flagString(args, "out") ?? defaultProjectPath(video));
-	if (!out.endsWith(PROJECT_EXTENSION))
-		throw new CliError(`project path must end in ${PROJECT_EXTENSION}`);
+	if (!isProjectFilePath(out))
+		throw new CliError(`project path must end in ${PROJECT_EXTENSION} (or legacy .openscreen)`);
 	if (existsSync(out) && !flagBool(args, "force")) {
 		throw new CliError(`project already exists: ${out} (pass --force to overwrite)`);
 	}
@@ -376,7 +377,7 @@ export async function cmdTranscript(args: ParsedArgs): Promise<CommandOutput> {
 	const target = path.resolve(need(args, 0, "project|video"));
 	let video = target;
 	let cache = transcriptCachePath(target);
-	if (target.endsWith(PROJECT_EXTENSION)) {
+	if (isProjectFilePath(target)) {
 		const project = await loadProject(target);
 		video = project.media.screenVideoPath;
 		cache = transcriptCachePath(project.path);

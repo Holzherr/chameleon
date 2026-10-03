@@ -1,6 +1,6 @@
 # chameleon CLI
 
-Edits `.openscreen` project files so Claude Code can drive the editor from a terminal.
+Edits `.chameleon` project files (legacy `.openscreen` projects open too; same format) so Claude Code can drive the editor from a terminal.
 
 ```
 npm run build:cli          # bundles cli/ to dist-cli/chameleon.mjs
@@ -11,7 +11,7 @@ Needs Node 22+, ffmpeg/ffprobe (`/opt/homebrew/bin` or PATH). Every command take
 
 | Command | What it does |
 | --- | --- |
-| `new <video> [-o p.openscreen] [--webcam v]` | project identical to what the app saves for a fresh recording |
+| `new <video> [-o p.chameleon] [--webcam v]` | project identical to what the app saves for a fresh recording |
 | `show <project>` | full project + source/edited duration + regions with ids |
 | `transcript <project\|video>` | word timestamps (Whisper base) + ffmpeg silences, cached in `<file>.transcript.json` |
 | `cut <p> <start> <end> [--snap]` / `cut <p> --text "phrase" [--snap] [--all\|--nth N]` | trim region; overlapping cuts merge |
@@ -49,7 +49,7 @@ Needs Node 22+, ffmpeg/ffprobe (`/opt/homebrew/bin` or PATH). Every command take
 Only mouse clicks and position are recorded; there is no keyboard telemetry, so typing does not extend a zoom.
 
 ```
-$ chameleon autozoom demo.openscreen
+$ chameleon autozoom demo.chameleon
 added 4 auto zoom(s) from 7 click(s) + cursor dwell
   zoom-1     0.918s–4.107s  2.2x at 0.25,0.303 (follows cursor)  click cluster, 3 clicks
   zoom-2     8.128s–9.462s  1.8x at 0.8,0.75  cursor dwell 1.551s

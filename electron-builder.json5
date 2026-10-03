@@ -8,6 +8,12 @@
     "**/*.node"
   ],
   "productName": "Chameleon",
+  "copyright": "Copyright © 2026 Nicolas Holzherr-Mandal. Based on OpenScreen © 2025 Siddharth Vaddem (MIT).",
+  // Finder double-click opens projects (app.on("open-file")); legacy OpenScreen projects too.
+  "fileAssociations": [
+    { "ext": "chameleon", "name": "Chameleon Project", "role": "Editor" },
+    { "ext": "openscreen", "name": "OpenScreen Project", "role": "Editor" }
+  ],
   // Fetch the auto-caption model + ORT wasm into caption-assets/ before packaging (idempotent).
   "beforePack": "scripts/before-pack.cjs",
   "npmRebuild": true,

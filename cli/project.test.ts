@@ -3,9 +3,15 @@ import { DEFAULT_PROJECT_CURSOR } from "@/components/video-editor/editorDefaults
 import { normalizeProjectEditor } from "@/components/video-editor/projectPersistence";
 import { INITIAL_EDITOR_STATE } from "@/hooks/useEditorHistory";
 import { getBackground } from "@/lib/backgrounds";
+import { appBundleOf } from "./app";
 import { resolveWallpaperArg } from "./commands";
 import { parseSilenceDetect } from "./media";
-import { createNewProjectData, SETTABLE_KEYS } from "./project";
+import {
+	createNewProjectData,
+	defaultProjectPath,
+	isProjectFilePath,
+	SETTABLE_KEYS,
+} from "./project";
 
 describe("createNewProjectData", () => {
 	it("equals what the app saves for a fresh recording", () => {
@@ -63,5 +69,23 @@ describe("parseSilenceDetect", () => {
 			{ startMs: 2012, endMs: 2478 },
 			{ startMs: 8500, endMs: 8861 },
 		]);
+	});
+});
+
+describe("project file paths", () => {
+	it("names new projects .chameleon and still accepts legacy .openscreen", () => {
+		expect(defaultProjectPath("/v/demo.mp4")).toBe("/v/demo.chameleon");
+		expect(isProjectFilePath("/v/demo.chameleon")).toBe(true);
+		expect(isProjectFilePath("/v/demo.OpenScreen")).toBe(true);
+		expect(isProjectFilePath("/v/demo.json")).toBe(false);
+	});
+});
+
+describe("appBundleOf", () => {
+	it("finds the .app bundle of a bundled binary", () => {
+		expect(appBundleOf("/Applications/Chameleon.app/Contents/MacOS/Chameleon")).toBe(
+			"/Applications/Chameleon.app",
+		);
+		expect(appBundleOf("/usr/local/bin/chameleon")).toBeNull();
 	});
 });

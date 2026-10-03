@@ -7,6 +7,15 @@ export const OUT_FLAG = "--chameleon-out";
 export const FRAME_MS_FLAG = "--chameleon-frame-ms";
 export const RESULT_PREFIX = "CHAMELEON_RESULT ";
 
+/** Extension new projects are saved with. */
+export const PROJECT_EXTENSION = ".chameleon";
+/** Extensions the app opens: our own plus legacy OpenScreen projects (same format). */
+export const OPENABLE_PROJECT_EXTENSIONS: readonly string[] = [PROJECT_EXTENSION, ".openscreen"];
+
+export function isProjectFilePath(value: string): boolean {
+	return OPENABLE_PROJECT_EXTENSIONS.includes(extensionOf(value));
+}
+
 export interface RenderJob {
 	projectPath: string;
 	outPath: string;
@@ -90,10 +99,10 @@ function validateRenderArgs(
 	frameRaw: string | undefined,
 ): string | null {
 	if (!projectPath || !isAbsolutePath(projectPath)) {
-		return `${RENDER_FLAG} needs an absolute .openscreen path`;
+		return `${RENDER_FLAG} needs an absolute ${PROJECT_EXTENSION} path`;
 	}
-	if (extensionOf(projectPath) !== ".openscreen") {
-		return `${RENDER_FLAG} must point to a .openscreen project`;
+	if (!isProjectFilePath(projectPath)) {
+		return `${RENDER_FLAG} must point to a ${OPENABLE_PROJECT_EXTENSIONS.join(" or ")} project`;
 	}
 	if (!outPath || !isAbsolutePath(outPath)) {
 		return `${OUT_FLAG} needs an absolute output path`;

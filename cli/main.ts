@@ -39,7 +39,7 @@ const silenceFlags = ["noise", "min-silence"];
 
 const COMMANDS: Record<string, CommandDef> = {
 	new: {
-		usage: "new <video> [-o <project.openscreen>] [--webcam <video>] [--force]",
+		usage: "new <video> [-o <project.chameleon>] [--webcam <video>] [--force]",
 		summary: "create a project for a video (default: next to the video)",
 		spec: { strings: ["out", "webcam"], booleans: ["force"], aliases: { o: "out" } },
 		run: cmdNew,
@@ -179,7 +179,7 @@ const COMMANDS: Record<string, CommandDef> = {
 function globalHelp(): string {
 	const width = Math.max(...Object.keys(COMMANDS).map((k) => k.length));
 	return [
-		"chameleon: edit Chameleon/OpenScreen projects (.openscreen) from the terminal",
+		"chameleon: edit Chameleon projects (.chameleon; legacy .openscreen opens too) from the terminal",
 		"",
 		"Usage: chameleon <command> [args] [--json]",
 		"",
