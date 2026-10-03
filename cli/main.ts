@@ -1,6 +1,7 @@
 import { type ArgSpec, parseArgs } from "./args";
 import {
 	type CommandOutput,
+	cmdAutozoom,
 	cmdCaption,
 	cmdCut,
 	cmdExport,
@@ -73,6 +74,12 @@ const COMMANDS: Record<string, CommandDef> = {
 		summary: "zoom in on a span; focus x,y normalised 0–1 (default 0.5,0.5), depth default 3",
 		spec: { booleans: ["timeline", "replace"], strings: ["depth", "focus"] },
 		run: cmdZoom,
+	},
+	autozoom: {
+		usage: "autozoom <project> [--replace] [--clicks-only | --dwell-only]",
+		summary: "auto zooms from cursor telemetry (click clusters + dwells), like the editor's wand",
+		spec: { booleans: ["replace", "clicks-only", "dwell-only"] },
+		run: cmdAutozoom,
 	},
 	text: {
 		usage:

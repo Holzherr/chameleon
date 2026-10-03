@@ -100,7 +100,11 @@ import {
 } from "./projectPersistence";
 import { SettingsPanel } from "./SettingsPanel";
 import TimelineEditor from "./timeline/TimelineEditor";
-import { buildAutoZoomSuggestions } from "./timeline/zoomSuggestionUtils";
+import {
+	buildAutoZoomSuggestions,
+	extractClickEvents,
+	type ZoomClickEvent,
+} from "./timeline/zoomSuggestionUtils";
 import {
 	type AnnotationRegion,
 	type BlurData,
@@ -267,8 +271,11 @@ export default function VideoEditor() {
 	const cursorTelemetrySourcePath = videoSourcePath ?? (videoPath ? fromFileUrl(videoPath) : null);
 	const { samples: cursorTelemetry, error: cursorTelemetryError } =
 		useCursorTelemetry(cursorTelemetrySourcePath);
-	const { data: cursorRecordingData, error: cursorRecordingDataError } =
-		useCursorRecordingData(cursorTelemetrySourcePath);
+	const {
+		data: cursorRecordingData,
+		loading: cursorRecordingDataLoading,
+		error: cursorRecordingDataError,
+	} = useCursorRecordingData(cursorTelemetrySourcePath);
 	const cursorClickTimestamps = useMemo<number[]>(
 		() => deriveCursorClickTimestamps(cursorRecordingData, cursorTelemetry),
 		[cursorRecordingData, cursorTelemetry],
@@ -1122,13 +1129,21 @@ export default function VideoEditor() {
 		[pushState, autoFocusAll],
 	);
 
-	// Builds fresh "auto" zoom regions from cursor telemetry without overlapping
-	// existing ones. Used by both the on-load auto-suggest pass and the wand toggle.
+	// Click positions come from the native recording samples (the telemetry IPC strips
+	// interactionType); same source preference as deriveCursorClickTimestamps.
+	const cursorClickEvents = useMemo<ZoomClickEvent[]>(() => {
+		const recordingClicks = extractClickEvents(cursorRecordingData?.samples ?? []);
+		return recordingClicks.length > 0 ? recordingClicks : extractClickEvents(cursorTelemetry);
+	}, [cursorRecordingData, cursorTelemetry]);
+
+	// Builds fresh "auto" zoom regions from click clusters and cursor dwells without
+	// overlapping existing ones. Used by both the on-load auto-suggest pass and the wand toggle.
 	const buildAutoZoomRegions = useCallback(
 		(existingRegions: ZoomRegion[]): ZoomRegion[] => {
 			const totalMs = Math.round(duration * 1000);
 			const suggestions = buildAutoZoomSuggestions({
 				cursorTelemetry,
+				clicks: cursorClickEvents,
 				totalMs,
 				existingRegions,
 				defaultDurationMs: Math.max(1000, Math.round(totalMs * 0.05)),
@@ -1137,14 +1152,14 @@ export default function VideoEditor() {
 				id: `zoom-${nextZoomIdRef.current++}`,
 				startMs: Math.round(suggestion.span.start),
 				endMs: Math.round(suggestion.span.end),
-				depth: DEFAULT_ZOOM_DEPTH,
-				customScale: ZOOM_DEPTH_SCALES[DEFAULT_ZOOM_DEPTH],
-				focus: clampFocusToDepth(suggestion.focus, DEFAULT_ZOOM_DEPTH),
-				focusMode: autoFocusAll ? ("auto" as const) : undefined,
+				depth: suggestion.depth,
+				customScale: ZOOM_DEPTH_SCALES[suggestion.depth],
+				focus: clampFocusToDepth(suggestion.focus, suggestion.depth),
+				focusMode: autoFocusAll || suggestion.followCursor ? ("auto" as const) : undefined,
 				source: "auto" as const,
 			}));
 		},
-		[cursorTelemetry, duration, autoFocusAll],
+		[cursorTelemetry, cursorClickEvents, duration, autoFocusAll],
 	);
 
 	// Auto-suggest zooms once per fresh recording (no existing zooms, telemetry
@@ -1155,6 +1170,8 @@ export default function VideoEditor() {
 		if (!autoZoomEnabled || !cursorTelemetrySourcePath) return;
 		if (autoProcessedSourceRef.current === cursorTelemetrySourcePath) return;
 		if (cursorTelemetry.length < 2 || duration <= 0) return;
+		// Clicks come from the recording data; wait for it so they aren't missed.
+		if (cursorRecordingDataLoading) return;
 		// Only auto-suggest for a fresh recording; don't disturb existing zooms.
 		if (zoomRegions.length > 0) {
 			autoProcessedSourceRef.current = cursorTelemetrySourcePath;
@@ -1168,6 +1185,7 @@ export default function VideoEditor() {
 		autoZoomEnabled,
 		cursorTelemetrySourcePath,
 		cursorTelemetry,
+		cursorRecordingDataLoading,
 		duration,
 		zoomRegions,
 		buildAutoZoomRegions,

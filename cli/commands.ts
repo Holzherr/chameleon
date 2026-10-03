@@ -1,4 +1,5 @@
 import { existsSync } from "node:fs";
+import fs from "node:fs/promises";
 import path from "node:path";
 import {
 	deriveNextId,
@@ -6,8 +7,15 @@ import {
 	type ProjectEditorState,
 } from "@/components/video-editor/projectPersistence";
 import {
+	type AutoZoomSources,
+	type AutoZoomSuggestion,
+	buildAutoZoomSuggestions,
+	extractClickEvents,
+} from "@/components/video-editor/timeline/zoomSuggestionUtils";
+import {
 	type AnnotationRegion,
 	type AnnotationTextStyle,
+	clampFocusToDepth,
 	DEFAULT_ANNOTATION_POSITION,
 	DEFAULT_ANNOTATION_SIZE,
 	DEFAULT_ANNOTATION_STYLE,
@@ -18,6 +26,7 @@ import {
 } from "@/components/video-editor/types";
 import { normalizeTextAnimation } from "@/lib/annotationTextAnimation";
 import { captionSegmentsToAnnotationRegions } from "@/lib/captioning/annotationsFromCaptions";
+import { parseCursorRecordingFile } from "@/native/cursorRecordingFile";
 import { launchApp } from "./app";
 import { flagBool, flagNumber, flagString, type ParsedArgs } from "./args";
 import { CliError } from "./errors";
@@ -540,6 +549,120 @@ export async function cmdZoom(args: ParsedArgs): Promise<CommandOutput> {
 			...timelineSpan(ctx, startMs, endMs),
 		},
 		human: `zoom ${region.id} ${formatRange(startMs, endMs)} depth ${depth} (${ZOOM_DEPTH_SCALES[depth]}x) focus ${autoFocus ? "auto" : `${focus.cx},${focus.cy}`}${overlapping.length ? ` (replaced ${overlapping.map((z) => z.id).join(", ")})` : ""}`,
+	};
+}
+
+// ---------------------------------------------------------------- autozoom
+
+/** Reads `<video>.cursor.json` the way the app's get-cursor-recording-data handler does. */
+async function loadCursorRecording(videoPath: string) {
+	const file = `${videoPath}.cursor.json`;
+	let content: string;
+	try {
+		content = await fs.readFile(file, "utf-8");
+	} catch {
+		throw new CliError(
+			`no cursor telemetry for this video (expected ${file}, written by the recorder)`,
+		);
+	}
+	let data: ReturnType<typeof parseCursorRecordingFile>;
+	try {
+		data = parseCursorRecordingFile(content, process.platform);
+	} catch {
+		throw new CliError(`cursor telemetry is not valid JSON: ${file}`);
+	}
+	if (data.samples.length < 2) throw new CliError(`cursor telemetry has no samples: ${file}`);
+	return { file, data };
+}
+
+function describeReason(s: AutoZoomSuggestion): string {
+	return s.reason.kind === "clicks"
+		? `click cluster, ${s.reason.clickCount} click${s.reason.clickCount === 1 ? "" : "s"}`
+		: `cursor dwell ${formatTime(s.reason.dwellMs)}`;
+}
+
+export async function cmdAutozoom(args: ParsedArgs): Promise<CommandOutput> {
+	const ctx = await openProject(need(args, 0, "project"));
+	const clicksOnly = flagBool(args, "clicks-only");
+	const dwellOnly = flagBool(args, "dwell-only");
+	if (clicksOnly && dwellOnly)
+		throw new CliError("pass at most one of --clicks-only, --dwell-only");
+	const sources: AutoZoomSources = clicksOnly ? "clicks" : dwellOnly ? "dwell" : "all";
+
+	const { file, data } = await loadCursorRecording(ctx.project.media.screenVideoPath);
+	const telemetry = data.samples.map((s) => ({ timeMs: s.timeMs, cx: s.cx, cy: s.cy }));
+	const clicks = extractClickEvents(data.samples);
+
+	const zooms = regionsOf(ctx.project).zoomRegions;
+	const replace = flagBool(args, "replace");
+	// --replace is the wand's OFF→ON: drop untouched auto zooms, regenerate around the rest.
+	const kept = replace ? zooms.filter((z) => z.source !== "auto") : zooms;
+	const removedIds = zooms.filter((z) => !kept.includes(z)).map((z) => z.id);
+
+	const totalMs = ctx.sourceDurationMs;
+	const suggestions = buildAutoZoomSuggestions({
+		cursorTelemetry: telemetry,
+		clicks,
+		totalMs,
+		existingRegions: kept,
+		// Same default as VideoEditor.buildAutoZoomRegions.
+		defaultDurationMs: Math.max(1000, Math.round(totalMs * 0.05)),
+		sources,
+	});
+
+	const autoFocusAll = ctx.project.data.editor.autoFocusAll === true;
+	const ids = zooms.map((z) => z.id);
+	const added = suggestions.map((s) => {
+		const id = nextRegionId("zoom", ids);
+		ids.push(id);
+		// Same shape as VideoEditor.buildAutoZoomRegions.
+		const region: ZoomRegion = {
+			id,
+			startMs: Math.round(s.span.start),
+			endMs: Math.round(s.span.end),
+			depth: s.depth,
+			customScale: ZOOM_DEPTH_SCALES[s.depth],
+			focus: clampFocusToDepth(s.focus, s.depth),
+			focusMode: autoFocusAll || s.followCursor ? "auto" : undefined,
+			source: "auto",
+		};
+		return { region, suggestion: s };
+	});
+
+	ctx.project.data.editor.zoomRegions = [...kept, ...added.map((a) => a.region)].sort(
+		(a, b) => a.startMs - b.startMs,
+	);
+	ctx.project.data.editor.autoZoomEnabled = true;
+	await saveProject(ctx.project);
+
+	const round3 = (n: number) => Math.round(n * 1000) / 1000;
+	return {
+		json: {
+			ok: true,
+			project: ctx.project.path,
+			telemetry: file,
+			clickCount: clicks.length,
+			sources,
+			added: added.map(({ region, suggestion }) => ({
+				id: region.id,
+				startMs: region.startMs,
+				endMs: region.endMs,
+				...timelineSpan(ctx, region.startMs, region.endMs),
+				depth: region.depth,
+				scale: ZOOM_DEPTH_SCALES[region.depth],
+				focus: { cx: round3(region.focus.cx), cy: round3(region.focus.cy) },
+				focusMode: region.focusMode ?? "manual",
+				reason: suggestion.reason,
+			})),
+			removedIds,
+		},
+		human: [
+			`added ${added.length} auto zoom(s) from ${clicks.length} click(s) + cursor dwell${removedIds.length ? `, removed ${removedIds.length} old auto zoom(s)` : ""}`,
+			...added.map(
+				({ region, suggestion }) =>
+					`  ${region.id.padEnd(10)} ${formatRange(region.startMs, region.endMs)}  ${ZOOM_DEPTH_SCALES[region.depth]}x at ${round3(region.focus.cx)},${round3(region.focus.cy)}${region.focusMode === "auto" ? " (follows cursor)" : ""}  ${describeReason(suggestion)}`,
+			),
+		].join("\n"),
 	};
 }
 
