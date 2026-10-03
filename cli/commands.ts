@@ -1,8 +1,10 @@
 import { existsSync } from "node:fs";
 import fs from "node:fs/promises";
 import path from "node:path";
+import { DEFAULT_PROJECT_CURSOR } from "@/components/video-editor/editorDefaults";
 import {
 	deriveNextId,
+	normalizeProjectCursor,
 	normalizeProjectEditor,
 	type ProjectEditorState,
 } from "@/components/video-editor/projectPersistence";
@@ -25,7 +27,16 @@ import {
 	type ZoomRegion,
 } from "@/components/video-editor/types";
 import { normalizeTextAnimation } from "@/lib/annotationTextAnimation";
+import {
+	BACKGROUNDS,
+	backgroundIdOf,
+	IMAGE_BACKGROUNDS,
+	resolveBackgroundId,
+} from "@/lib/backgrounds";
 import { captionSegmentsToAnnotationRegions } from "@/lib/captioning/annotationsFromCaptions";
+import { parseCssBackgroundLayers } from "@/lib/exporter/gradientParser";
+import { getStylePreset, STYLE_PRESETS, stylePresetFields } from "@/lib/stylePresets";
+import { classifyWallpaper } from "@/lib/wallpaper";
 import { parseCursorRecordingFile } from "@/native/cursorRecordingFile";
 import { launchApp } from "./app";
 import { flagBool, flagNumber, flagString, type ParsedArgs } from "./args";
@@ -282,6 +293,7 @@ export async function cmdShow(args: ParsedArgs): Promise<CommandOutput> {
 	const ctx = await openProject(need(args, 0, "project"));
 	const regions = describeRegions(ctx);
 	const settings = settingsOf(ctx.project.data.editor);
+	const backgroundId = backgroundIdOf(ctx.project.data.editor.wallpaper);
 	const human = [
 		ctx.project.path,
 		`video ${ctx.project.media.screenVideoPath}${ctx.project.media.webcamVideoPath ? `\nwebcam ${ctx.project.media.webcamVideoPath}` : ""}`,
@@ -289,7 +301,10 @@ export async function cmdShow(args: ParsedArgs): Promise<CommandOutput> {
 		`regions: ${regions.trims.length} cut, ${regions.speeds.length} speed, ${regions.zooms.length} zoom, ${regions.annotations.length} annotation (times are source time)`,
 		...humanRegionLines(regions).map((l) => `  ${l}`),
 		`settings: ${Object.entries(settings)
-			.map(([k, v]) => `${k}=${typeof v === "object" ? JSON.stringify(v) : v}`)
+			.map(([k, v]) => {
+				if (k === "wallpaper" && backgroundId) return `wallpaper=${backgroundId}`;
+				return `${k}=${typeof v === "object" ? JSON.stringify(v) : v}`;
+			})
 			.join(" ")}`,
 	].join("\n");
 	return {
@@ -301,6 +316,7 @@ export async function cmdShow(args: ParsedArgs): Promise<CommandOutput> {
 			timeDomain: "source",
 			regions,
 			settings,
+			backgroundId,
 			data: ctx.project.data,
 		},
 		human,
@@ -840,6 +856,32 @@ function parseValue(text: string): unknown {
 	}
 }
 
+const COLOR_VALUE_RE = /^(#[0-9a-f]{3,8}|(rgba?|hsla?|hwb|lab|lch|oklab|oklch|color)\(.*\))$/i;
+
+/** `wallpaper=` takes a background id, a CSS colour/gradient the exporter can draw, or an image path. */
+export function resolveWallpaperArg(value: unknown): string {
+	if (typeof value !== "string" || value.trim() === "") {
+		throw new CliError("wallpaper must be a background id, colour, gradient or image path");
+	}
+	const fromId = resolveBackgroundId(value);
+	if (fromId) return fromId;
+	const classified = classifyWallpaper(value);
+	if (classified.kind === "gradient") {
+		if (!parseCssBackgroundLayers(classified.value)) {
+			throw new CliError(
+				`the exporter cannot draw this gradient (supported: linear-/radial-gradient layers): ${value}`,
+			);
+		}
+		return value.trim();
+	}
+	if (classified.kind === "color" && !COLOR_VALUE_RE.test(classified.value)) {
+		throw new CliError(
+			`unknown background "${value}" (ids: ${BACKGROUNDS.map((b) => b.id).join(", ")}, wallpaper1-${IMAGE_BACKGROUNDS.length}; or #hex / rgb() / a gradient)`,
+		);
+	}
+	return value.trim();
+}
+
 export async function cmdSet(args: ParsedArgs): Promise<CommandOutput> {
 	const ctx = await openProject(need(args, 0, "project"));
 	const pairs = args.positionals.slice(1);
@@ -857,6 +899,26 @@ export async function cmdSet(args: ParsedArgs): Promise<CommandOutput> {
 		if (rest.length) throw new CliError(`key path too deep: ${keyPath}`);
 		if (!(SETTABLE_KEYS as string[]).includes(key)) {
 			throw new CliError(`unknown setting "${key}" (keys: ${SETTABLE_KEYS.join(", ")})`);
+		}
+		if (key === "wallpaper") {
+			editor[key] = resolveWallpaperArg(value);
+			touched.push(key);
+			continue;
+		}
+		if (key === "cursor" && sub === undefined && value && typeof value === "object") {
+			editor.cursor = { ...normalizeProjectCursor(editor.cursor), ...(value as object) };
+			touched.push(key);
+			continue;
+		}
+		if (key === "cursor" && sub !== undefined) {
+			if (!(sub in DEFAULT_PROJECT_CURSOR)) {
+				throw new CliError(
+					`cursor has no field ${sub} (fields: ${Object.keys(DEFAULT_PROJECT_CURSOR).join(", ")})`,
+				);
+			}
+			editor.cursor = { ...normalizeProjectCursor(editor.cursor), [sub]: value };
+			touched.push(key);
+			continue;
 		}
 		if (sub !== undefined) {
 			const current = editor[key];
@@ -884,8 +946,70 @@ export async function cmdSet(args: ParsedArgs): Promise<CommandOutput> {
 	return {
 		json: { ok: true, project: ctx.project.path, changed },
 		human: Object.entries(changed)
-			.map(([k, v]) => `${k} = ${JSON.stringify(v)}`)
+			.map(([k, v]) => {
+				const id = k === "wallpaper" && typeof v === "string" ? backgroundIdOf(v) : null;
+				return `${k} = ${id ?? JSON.stringify(v)}`;
+			})
 			.join("\n"),
+	};
+}
+
+// ---------------------------------------------------------------- looks
+
+export async function cmdBackgrounds(_args: ParsedArgs): Promise<CommandOutput> {
+	const curated = BACKGROUNDS.map((b) => ({
+		id: b.id,
+		name: b.name,
+		kind: "gradient" as const,
+		tone: b.tone,
+		value: b.value,
+	}));
+	const images = IMAGE_BACKGROUNDS.map((b) => ({
+		id: b.id,
+		name: b.name,
+		kind: "image" as const,
+		value: b.value,
+	}));
+	return {
+		json: { ok: true, backgrounds: [...curated, ...images] },
+		human: [
+			...curated.map((b) => `${b.id.padEnd(12)} ${b.name} (${b.tone})`),
+			`wallpaper1…wallpaper${images.length}  bundled images`,
+			"",
+			"use: chameleon set <project> wallpaper=<id>",
+		].join("\n"),
+	};
+}
+
+export async function cmdStyles(_args: ParsedArgs): Promise<CommandOutput> {
+	return {
+		json: { ok: true, presets: STYLE_PRESETS },
+		human: [
+			...STYLE_PRESETS.map(
+				(p) =>
+					`${p.id.padEnd(8)} ${p.description} (background ${p.background}, padding ${p.padding}, radius ${p.borderRadius}, shadow ${p.shadowIntensity}, motion blur ${p.motionBlurAmount})`,
+			),
+			"",
+			"use: chameleon style <project> <preset>",
+		].join("\n"),
+	};
+}
+
+export async function cmdStyle(args: ParsedArgs): Promise<CommandOutput> {
+	const project = await loadProject(need(args, 0, "project"));
+	const id = need(args, 1, "preset");
+	const preset = getStylePreset(id);
+	if (!preset) {
+		throw new CliError(
+			`unknown style "${id}" (presets: ${STYLE_PRESETS.map((p) => p.id).join(", ")})`,
+		);
+	}
+	const fields = stylePresetFields(preset, project.data.editor.cursor);
+	project.data.editor = { ...project.data.editor, ...fields };
+	await saveProject(project);
+	return {
+		json: { ok: true, project: project.path, preset: preset.id, changed: fields },
+		human: `applied ${preset.id}: background ${preset.background}, padding ${fields.padding}, radius ${fields.borderRadius}, shadow ${fields.shadowIntensity}, motion blur ${fields.motionBlurAmount}, cursor size ${fields.cursor?.size}`,
 	};
 }
 

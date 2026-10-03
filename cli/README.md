@@ -22,6 +22,14 @@ Needs Node 22+, ffmpeg/ffprobe (`/opt/homebrew/bin` or PATH). Every command take
 | `caption <p> [--min-words 2 --max-words 7] [--replace]` | caption annotations, same grouping as the app's auto-captions |
 | `list <p> [type]`, `remove <p> <id>...`, `set <p> key=value...` | `set` validates through `normalizeProjectEditor` |
 | `open <p>`, `export <p> -o out.mp4\|.gif`, `frame <p> <time> -o out.png` | launch the Electron app (`cli/app.ts`) |
+| `backgrounds` | background ids: 12 curated mesh gradients (`dusk` default, `dawn`, `sky`, `mint`, `lavender`, `rose`, `sand`, `ocean`, `sunset`, `aurora`, `graphite`, `midnight`) and `wallpaper1`–`wallpaper18` |
+| `styles`, `style <p> <preset>` | presets `studio` (new-project default), `clean`, `bold`, `dark`, `minimal`: background + padding + radius + shadow + motion blur + cursor; other settings kept |
+
+## Looks
+
+- `set p wallpaper=ocean` stores the background's CSS value (`show` prints the id back). Raw `#hex`/`rgb()`, `linear-`/`radial-gradient` layers and `/wallpapers/…` paths also work; gradients the exporter cannot draw (e.g. `conic-`) are rejected.
+- Cursor visuals live in `editor.cursor` (`show`, `size` 0.5–10, `smoothing` 0–1, `motionBlur` 0–1, `clickBounce` 0–5, `clipToBounds`): `set p cursor.size=4 cursor.show=false`. Projects without it use the app defaults; the app writes it on save. Headless `export`/`frame` honour it.
+- Data: `src/lib/backgrounds.ts`, `src/lib/stylePresets.ts`; new-project defaults in `src/components/video-editor/editorDefaults.ts`.
 
 ## Time semantics
 

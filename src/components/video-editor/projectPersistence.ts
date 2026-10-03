@@ -11,7 +11,10 @@ import {
 	DEFAULT_EDITOR_LAYOUT_SETTINGS,
 	DEFAULT_EXPORT_SETTINGS,
 	DEFAULT_GIF_SETTINGS,
+	DEFAULT_PROJECT_CURSOR,
 	DEFAULT_WEBCAM_SETTINGS,
+	PROJECT_CURSOR_RANGES,
+	type ProjectCursorSettings,
 } from "./editorDefaults";
 import {
 	type AnnotationRegion,
@@ -92,6 +95,8 @@ export interface ProjectEditorState {
 	gifLoop: boolean;
 	gifSizePreset: GifSizePreset;
 	cursorTheme: string;
+	/** Cursor visuals. Optional: projects saved before it existed use the app defaults. */
+	cursor?: ProjectCursorSettings;
 }
 
 export interface EditorProjectData {
@@ -215,6 +220,25 @@ export function resolveProjectMedia(
 	}
 
 	return null;
+}
+
+/** Fills missing cursor fields from defaults and clamps numbers to the panel's ranges. */
+export function normalizeProjectCursor(raw: unknown): ProjectCursorSettings {
+	const c = raw && typeof raw === "object" ? (raw as Partial<ProjectCursorSettings>) : {};
+	const num = (key: keyof typeof PROJECT_CURSOR_RANGES) => {
+		const v = c[key];
+		const { min, max } = PROJECT_CURSOR_RANGES[key];
+		return isFiniteNumber(v) ? clamp(v, min, max) : DEFAULT_PROJECT_CURSOR[key];
+	};
+	return {
+		show: typeof c.show === "boolean" ? c.show : DEFAULT_PROJECT_CURSOR.show,
+		size: num("size"),
+		smoothing: num("smoothing"),
+		motionBlur: num("motionBlur"),
+		clickBounce: num("clickBounce"),
+		clipToBounds:
+			typeof c.clipToBounds === "boolean" ? c.clipToBounds : DEFAULT_PROJECT_CURSOR.clipToBounds,
+	};
 }
 
 export function normalizeProjectEditor(editor: Partial<ProjectEditorState>): ProjectEditorState {
@@ -447,6 +471,7 @@ export function normalizeProjectEditor(editor: Partial<ProjectEditorState>): Pro
 
 	return {
 		cursorTheme: normalizeCursorThemeId(editor.cursorTheme),
+		...(editor.cursor !== undefined ? { cursor: normalizeProjectCursor(editor.cursor) } : {}),
 		wallpaper:
 			typeof editor.wallpaper === "string"
 				? normalizeWallpaperValue(editor.wallpaper)

@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
+import { DEFAULT_PROJECT_CURSOR } from "./editorDefaults";
 import {
 	createProjectData,
 	createProjectSnapshot,
 	hasProjectUnsavedChanges,
+	normalizeProjectCursor,
 	normalizeProjectEditor,
 	PROJECT_VERSION,
 	resolveProjectMedia,
@@ -262,5 +264,42 @@ describe("wallpaper legacy normalization", () => {
 			wallpaper: "file:///opt/Openscreen/resources/wallpapers/wallpaper99.jpg",
 		});
 		expect(normalized.wallpaper).toBe("/wallpapers/wallpaper1.jpg");
+	});
+});
+
+describe("project cursor settings", () => {
+	it("stays absent when the project has none (app defaults apply)", () => {
+		expect(normalizeProjectEditor({})).not.toHaveProperty("cursor");
+	});
+
+	it("keeps stored values and fills missing fields from defaults", () => {
+		expect(normalizeProjectEditor({ cursor: { size: 5, show: false } as never }).cursor).toEqual({
+			...DEFAULT_PROJECT_CURSOR,
+			size: 5,
+			show: false,
+		});
+	});
+
+	it("clamps numbers to the cursor panel ranges and drops bad types", () => {
+		expect(
+			normalizeProjectCursor({
+				size: 50,
+				smoothing: -1,
+				motionBlur: "x",
+				clickBounce: 9,
+				clipToBounds: "yes",
+			}),
+		).toEqual({
+			...DEFAULT_PROJECT_CURSOR,
+			size: 10,
+			smoothing: 0,
+			clickBounce: 5,
+		});
+		expect(normalizeProjectCursor(null)).toEqual(DEFAULT_PROJECT_CURSOR);
+	});
+
+	it("round-trips through normalize unchanged", () => {
+		const editor = normalizeProjectEditor({ cursor: { ...DEFAULT_PROJECT_CURSOR, size: 2 } });
+		expect(normalizeProjectEditor(editor)).toEqual(editor);
 	});
 });

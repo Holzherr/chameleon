@@ -2,6 +2,7 @@ import { type ArgSpec, parseArgs } from "./args";
 import {
 	type CommandOutput,
 	cmdAutozoom,
+	cmdBackgrounds,
 	cmdCaption,
 	cmdCut,
 	cmdExport,
@@ -13,6 +14,8 @@ import {
 	cmdSet,
 	cmdShow,
 	cmdSpeed,
+	cmdStyle,
+	cmdStyles,
 	cmdText,
 	cmdTranscript,
 	cmdZoom,
@@ -125,10 +128,33 @@ const COMMANDS: Record<string, CommandDef> = {
 		run: cmdRemove,
 	},
 	set: {
-		usage: "set <project> <key>=<value>... (e.g. padding=20 aspectRatio=9:16 cropRegion.x=0.1)",
-		summary: "change editor settings; values are JSON or plain strings, validated like the app",
+		usage:
+			"set <project> <key>=<value>... (e.g. padding=20 aspectRatio=9:16 cropRegion.x=0.1\n       wallpaper=ocean shadowIntensity=0.8 borderRadius=16 cursor.size=4 cursor.show=false)",
+		summary:
+			"change editor settings; values are JSON or plain strings, validated like the app.\n" +
+			"wallpaper takes a background id (see `backgrounds`), #hex/rgb(), a gradient or an image path.\n" +
+			"cursor.<field>: show, size 0.5-10, smoothing 0-1, motionBlur 0-1, clickBounce 0-5, clipToBounds",
 		spec: {},
 		run: cmdSet,
+	},
+	backgrounds: {
+		usage: "backgrounds",
+		summary:
+			"list background ids for `set wallpaper=<id>` (curated gradients, then bundled images)",
+		spec: {},
+		run: cmdBackgrounds,
+	},
+	styles: {
+		usage: "styles",
+		summary: "list style presets (background, padding, radius, shadow, motion blur, cursor)",
+		spec: {},
+		run: cmdStyles,
+	},
+	style: {
+		usage: "style <project> <preset>",
+		summary: "apply a style preset (studio, clean, bold, dark, minimal); other settings are kept",
+		spec: {},
+		run: cmdStyle,
 	},
 	open: {
 		usage: "open <project>",
@@ -157,7 +183,9 @@ function globalHelp(): string {
 		"",
 		"Usage: chameleon <command> [args] [--json]",
 		"",
-		...Object.entries(COMMANDS).map(([name, c]) => `  ${name.padEnd(width)}  ${c.summary}`),
+		...Object.entries(COMMANDS).map(
+			([name, c]) => `  ${name.padEnd(width)}  ${c.summary.split("\n")[0]}`,
+		),
 		"",
 		TIME_HELP,
 		"",

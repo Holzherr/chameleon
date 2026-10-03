@@ -1,5 +1,6 @@
 import fs from "node:fs/promises";
 import path from "node:path";
+import { DEFAULT_PROJECT_CURSOR } from "@/components/video-editor/editorDefaults";
 import {
 	createProjectData,
 	type EditorProjectData,
@@ -65,11 +66,14 @@ export async function saveProject(project: LoadedProject): Promise<void> {
 /**
  * Builds the project the editor would save for a fresh recording: the app seeds
  * the editor with `INITIAL_EDITOR_STATE` and saves it through
- * `normalizeProjectEditor`, which fills export/GIF defaults. `normalizeProjectEditor({})`
- * yields the same state (asserted in project.test.ts).
+ * `normalizeProjectEditor`, which fills export/GIF defaults, plus the cursor settings.
+ * `normalizeProjectEditor({})` yields the same state (asserted in project.test.ts).
  */
 export function createNewProjectData(media: ProjectMedia): EditorProjectData {
-	return createProjectData(media, normalizeProjectEditor({}));
+	return createProjectData(media, {
+		...normalizeProjectEditor({}),
+		cursor: { ...DEFAULT_PROJECT_CURSOR },
+	});
 }
 
 export function editorOf(project: LoadedProject): ProjectEditorState {
@@ -109,6 +113,9 @@ export const REGION_KEYS = [
 ] as const;
 
 /** Top-level editor settings `set` may change (everything except region arrays). */
-export const SETTABLE_KEYS = Object.keys(normalizeProjectEditor({})).filter(
-	(k) => !(REGION_KEYS as readonly string[]).includes(k),
-) as Array<keyof ProjectEditorState>;
+export const SETTABLE_KEYS = [
+	...Object.keys(normalizeProjectEditor({})).filter(
+		(k) => !(REGION_KEYS as readonly string[]).includes(k),
+	),
+	"cursor",
+] as Array<keyof ProjectEditorState>;

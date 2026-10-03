@@ -64,12 +64,7 @@ import { BackgroundLoadError, classifyWallpaper, resolveImageWallpaperUrl } from
 import { drawCanvasClipPath } from "@/lib/webcamMaskShapes";
 import type { CursorRecordingData } from "@/native/contracts";
 import { renderAnnotations } from "./annotationRenderer";
-import {
-	getLinearGradientPoints,
-	getRadialGradientShape,
-	parseCssGradient,
-	resolveLinearGradientAngle,
-} from "./gradientParser";
+import { ditherCanvas, paintGradientLayers, parseCssBackgroundLayers } from "./gradientParser";
 import { createThreeDPass, type ThreeDPass } from "./threeDPass";
 import { drawWebcamFrameImage } from "./webcamFrameDrawing";
 
@@ -292,42 +287,12 @@ export class FrameRenderer {
 			bgCtx.fillStyle = classified.value;
 			bgCtx.fillRect(0, 0, this.config.width, this.config.height);
 		} else if (classified.kind === "gradient") {
-			const parsedGradient = parseCssGradient(classified.value);
-			if (!parsedGradient) {
+			const layers = parseCssBackgroundLayers(classified.value);
+			if (!layers) {
 				throw new BackgroundLoadError(classified.value);
 			}
-			const gradient =
-				parsedGradient.type === "linear"
-					? (() => {
-							const points = getLinearGradientPoints(
-								resolveLinearGradientAngle(parsedGradient.descriptor),
-								this.config.width,
-								this.config.height,
-							);
-							return bgCtx.createLinearGradient(points.x0, points.y0, points.x1, points.y1);
-						})()
-					: (() => {
-							const shape = getRadialGradientShape(
-								parsedGradient.descriptor,
-								this.config.width,
-								this.config.height,
-							);
-							return bgCtx.createRadialGradient(
-								shape.cx,
-								shape.cy,
-								0,
-								shape.cx,
-								shape.cy,
-								shape.radius,
-							);
-						})();
-
-			parsedGradient.stops.forEach((stop) => {
-				gradient.addColorStop(stop.offset, stop.color);
-			});
-
-			bgCtx.fillStyle = gradient;
-			bgCtx.fillRect(0, 0, this.config.width, this.config.height);
+			paintGradientLayers(bgCtx, layers, this.config.width, this.config.height);
+			ditherCanvas(bgCtx, this.config.width, this.config.height);
 		} else {
 			const imageUrl = resolveImageWallpaperUrl(classified.path);
 			const img = new Image();
