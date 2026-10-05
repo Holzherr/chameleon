@@ -8,6 +8,7 @@ Screen recorder and video editor that Claude can drive. Fork of [OpenScreen](htt
 - Feature specs:
   - [claude-control.md](claude-control.md): Claude Code opens and edits projects
   - [generated-media.md](generated-media.md): generated voice and animations on the timeline
+  - [web.md](web.md): web/Loom-style version (idea only, not scheduled)
 
 ## What OpenScreen gives us (as forked, upstream `f57e36e`)
 

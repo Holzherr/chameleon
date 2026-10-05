@@ -10,3 +10,4 @@ Append-only.
 - 2026-10-02 Nick (delegated to Claude): transcripts for editing use word-level timestamps from a Whisper base-size timestamped model (e.g. `onnx-community/whisper-base_timestamped` via Transformers.js), not whisper-tiny chunk timing. Cut points snap to the nearest silence. Verify accuracy on real recordings while building; upgrade the model if cuts land mid-word.
 - 2026-10-02 Nick: voice is bring-your-own. Chameleon bundles no voice provider; the user generates audio with their own provider/key and Claude places the file.
 - 2026-10-02 Nick: Claude generates animations itself, under the user's own tool licences. Chameleon's job is to give Claude full control to place them on the timeline.
+- 2026-10-05 Nick: web/Loom-style Chameleon is spec-only for now (specs/web.md); don't build.
