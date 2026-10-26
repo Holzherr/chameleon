@@ -50,6 +50,7 @@ import { createCursorRecordingSession } from "../native-bridge/cursor/recording/
 import { requestMacCursorAccessibilityAccess } from "../native-bridge/cursor/recording/macNativeCursorRecordingSession";
 import type { CursorRecordingSession } from "../native-bridge/cursor/recording/session";
 import { patchWebmDurationOnDisk } from "../recording/webm-duration";
+import { openExternalUrl } from "../security";
 import { registerNativeBridgeHandlers } from "./nativeBridge";
 import { RecordingStreamRegistry, registerRecordingStreamHandlers } from "./recordingStream";
 
@@ -2283,15 +2284,7 @@ export function registerIpcHandlers(
 		return readCursorTelemetryFile(targetVideoPath);
 	});
 
-	ipcMain.handle("open-external-url", async (_, url: string) => {
-		try {
-			await shell.openExternal(url);
-			return { success: true };
-		} catch (error) {
-			console.error("Failed to open URL:", error);
-			return { success: false, error: String(error) };
-		}
-	});
+	ipcMain.handle("open-external-url", (_, url: unknown) => openExternalUrl(url));
 
 	// Return base path for assets so renderer can resolve file:// paths in production
 	ipcMain.handle("get-asset-base-path", () => {
