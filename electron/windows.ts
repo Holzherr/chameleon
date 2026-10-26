@@ -1,6 +1,7 @@
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { BrowserWindow, ipcMain, screen } from "electron";
+import { hardenWebContents } from "./security";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -8,6 +9,13 @@ const APP_ROOT = path.join(__dirname, "..");
 const VITE_DEV_SERVER_URL = process.env["VITE_DEV_SERVER_URL"];
 const RENDERER_DIST = path.join(APP_ROOT, "dist");
 const HEADLESS = process.env["HEADLESS"] === "true";
+// Built windows load file:// media under full web security. Only the Vite dev server's
+// http origin needs it off, since Chromium refuses file:// media from http pages.
+const WEB_SECURITY = !VITE_DEV_SERVER_URL;
+const APP_ENTRY = {
+	devServerUrl: VITE_DEV_SERVER_URL,
+	indexHtmlPath: path.join(RENDERER_DIST, "index.html"),
+};
 
 // Asset base URL for renderer (wallpapers, etc.). Packaged: extraResources copies
 // public/wallpapers to resources/wallpapers. Unpackaged: <appRoot>/public/.
@@ -124,6 +132,7 @@ export function createHudOverlayWindow(): BrowserWindow {
 			backgroundThrottling: false,
 		},
 	});
+	hardenWebContents(win, APP_ENTRY);
 	win.setIgnoreMouseEvents(true, { forward: true });
 
 	// Follow the user across macOS Spaces, else the HUD stays pinned to the Space
@@ -189,10 +198,11 @@ export function createEditorWindow(): BrowserWindow {
 			additionalArguments: [ASSET_BASE_URL_ARG],
 			nodeIntegration: false,
 			contextIsolation: true,
-			webSecurity: false,
+			webSecurity: WEB_SECURITY,
 			backgroundThrottling: false,
 		},
 	});
+	hardenWebContents(win, APP_ENTRY);
 
 	win.maximize();
 
@@ -250,6 +260,7 @@ export function createSourceSelectorWindow(): BrowserWindow {
 			contextIsolation: true,
 		},
 	});
+	hardenWebContents(win, APP_ENTRY);
 
 	// Follow the user across macOS Spaces so the selector appears on the active
 	// desktop regardless of where the HUD was opened.
@@ -303,6 +314,7 @@ export function createCountdownOverlayWindow(): BrowserWindow {
 			backgroundThrottling: false,
 		},
 	});
+	hardenWebContents(win, APP_ENTRY);
 
 	win.setIgnoreMouseEvents(true);
 
@@ -338,10 +350,11 @@ export function createRenderWindow(): BrowserWindow {
 			additionalArguments: [ASSET_BASE_URL_ARG],
 			nodeIntegration: false,
 			contextIsolation: true,
-			webSecurity: false,
+			webSecurity: WEB_SECURITY,
 			backgroundThrottling: false,
 		},
 	});
+	hardenWebContents(win, APP_ENTRY);
 	win.webContents.setAudioMuted(true);
 
 	if (VITE_DEV_SERVER_URL) {

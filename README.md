@@ -49,6 +49,10 @@ Everything in the editor and export is the same on macOS, Windows, and Linux: zo
   - **Windows**: works out of the box.
   - **Linux**: needs PipeWire (default on Ubuntu 22.04+, Fedora 34+). Older PulseAudio-only setups may not capture system audio (mic should still work).
 
+## Security
+
+Every window runs with `contextIsolation`, no Node integration, and Electron's default renderer sandbox. Windows only show the app itself (`electron/security.ts`): `window.open` is denied, navigation away from the app is blocked, and only `https:`, `http:` and `mailto:` links open in the system browser. Built windows keep full web security; it is off only under the Vite dev server, whose http origin cannot otherwise load local videos.
+
 ## Credits and license
 
 Built on [OpenScreen](https://github.com/siddharthvaddem/openscreen), copyright (c) 2025 Siddharth Vaddem, released under the [MIT License](./LICENSE). Chameleon keeps that license and notice. By using this software, you agree that the authors are not liable for any issues, damages, or claims arising from its use.
