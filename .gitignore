@@ -13,7 +13,10 @@ dist-electron
 dist-cli
 dist-ssr
 *.local
-.env
+.env*
+!.env.example
+!.envrc
+.dev.vars
 
 # Native helper build outputs
 /electron/native/wgc-capture/build/

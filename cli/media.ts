@@ -57,6 +57,8 @@ export async function probeDurationMs(videoPath: string): Promise<number> {
 		"format=duration",
 		"-of",
 		"default=noprint_wrappers=1:nokey=1",
+		// Via -i, so a project's relative "-name.mp4" is read as a file, never an option.
+		"-i",
 		videoPath,
 	]);
 	const seconds = Number.parseFloat(stdout.trim());
